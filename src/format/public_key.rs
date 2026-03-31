@@ -1,0 +1,75 @@
+use std::fs;
+use std::io::Cursor;
+use std::path::Path;
+
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use fips204::traits::SerDes;
+
+use super::{FileHeader, FileType};
+use crate::domain::*;
+use crate::errors::{Error, IoContext};
+
+const TEXT_PREFIX: &str = "pqsign:v1:";
+
+fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
+    let mut buf = Vec::new();
+    FileHeader::new(FileType::PublicKey, public_key.key_id).write_to(&mut buf)?;
+    Ed25519PublicKey::from_bytes(public_key.ed25519.to_bytes()).write_to(&mut buf)?;
+    MlDsa65PublicKey::from_bytes(public_key.mldsa65.clone().into_bytes()).write_to(&mut buf)?;
+    Ok(buf)
+}
+
+fn decode(data: &[u8]) -> Result<PublicKey, Error> {
+    let mut r = Cursor::new(data);
+
+    let header = FileHeader::read(&mut r)?;
+    if header.file_type != FileType::PublicKey {
+        return Err(Error::InvalidFormat(format!(
+            "expected public key file, got: {:?}",
+            header.file_type
+        )));
+    }
+
+    let ed25519_pk = Ed25519PublicKey::read_from(&mut r)?;
+    let mldsa65_pk = MlDsa65PublicKey::read_from(&mut r)?;
+
+    PublicKey::from_parts(header.key_id, ed25519_pk, mldsa65_pk)
+}
+
+pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).io_context(path)?;
+    }
+
+    let blob = encode(public_key)?;
+    let line = format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob));
+    fs::write(path, line).io_context(path)
+}
+
+pub fn read(path: &Path) -> Result<PublicKey, Error> {
+    let content = fs::read_to_string(path).io_context(path)?;
+    read_from_string(&content)
+}
+
+pub fn read_from_string(content: &str) -> Result<PublicKey, Error> {
+    let line = content.trim_end();
+    let encoded = strip_prefix(line)?;
+    let blob = STANDARD.decode(encoded)?;
+    decode(&blob)
+}
+
+fn strip_prefix(line: &str) -> Result<&str, Error> {
+    if let Some(rest) = line.strip_prefix(TEXT_PREFIX) {
+        return Ok(rest);
+    }
+
+    if line.starts_with("pqsign:v") {
+        return Err(Error::InvalidFormat(
+            "public key requires a newer version of pqsign".into(),
+        ));
+    }
+
+    Err(Error::InvalidFormat(
+        "not a pqsign public key (missing prefix)".into(),
+    ))
+}
