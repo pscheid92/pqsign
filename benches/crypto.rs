@@ -56,13 +56,9 @@ fn bench_verify(c: &mut Criterion) {
     for &(size, label) in sizes {
         let path = create_test_file(&dir, size);
         let sig = sk.sign(&path, "benchmark").unwrap();
-        group.bench_with_input(
-            BenchmarkId::from_parameter(label),
-            &(&sig, &pk, &path),
-            |b, &(sig, pk, path)| {
-                b.iter(|| sig.verify(pk, path));
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(label), &(&sig, &pk, &path), |b, &(sig, pk, path)| {
+            b.iter(|| sig.verify(pk, path));
+        });
     }
     group.finish();
 }

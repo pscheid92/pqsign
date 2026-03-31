@@ -40,10 +40,7 @@ impl KeyPair {
             mldsa65: mldsa65_public_key,
         };
 
-        KeyPair {
-            secret_key,
-            public_key,
-        }
+        KeyPair { secret_key, public_key }
     }
 
     pub fn into_parts(self) -> (SecretKey, PublicKey) {
@@ -81,14 +78,9 @@ impl SecretKey {
         self.key_id
     }
 
-    pub fn from_parts(
-        key_id: KeyId,
-        ed25519: Ed25519SecretKey,
-        mldsa65: MlDsa65SecretKey,
-    ) -> Result<Self, Error> {
+    pub fn from_parts(key_id: KeyId, ed25519: Ed25519SecretKey, mldsa65: MlDsa65SecretKey) -> Result<Self, Error> {
         let ed25519_key = ed25519::SigningKey::from_bytes(ed25519.as_bytes());
-        let mldsa65_key = ml_dsa_65::PrivateKey::try_from_bytes(mldsa65.into_bytes())
-            .map_err(|e| Error::Crypto(e.to_string()))?;
+        let mldsa65_key = ml_dsa_65::PrivateKey::try_from_bytes(mldsa65.into_bytes()).map_err(|e| Error::Crypto(e.to_string()))?;
         Ok(SecretKey {
             key_id,
             ed25519: ed25519_key,
@@ -100,12 +92,7 @@ impl SecretKey {
         let file_hash = prehash_file(path)?;
 
         // Ed25519 signs (domain prefix || file hash || trusted comment)
-        let ed25519_msg = [
-            ED25519_CONTEXT,
-            file_hash.as_ref(),
-            trusted_comment.as_bytes(),
-        ]
-        .concat();
+        let ed25519_msg = [ED25519_CONTEXT, file_hash.as_ref(), trusted_comment.as_bytes()].concat();
         let ed25519 = Ed25519Signature::from_bytes(self.ed25519.sign(&ed25519_msg).to_bytes());
 
         // ML-DSA-65 nests over (file hash || ed25519 sig) with domain context
@@ -137,19 +124,10 @@ impl PublicKey {
         self.key_id
     }
 
-    pub fn from_parts(
-        key_id: KeyId,
-        ed25519: Ed25519PublicKey,
-        mldsa65: MlDsa65PublicKey,
-    ) -> Result<Self, Error> {
-        let ed25519 = ed25519::VerifyingKey::from_bytes(ed25519.as_bytes())
-            .map_err(|e| Error::Crypto(format!("invalid ed25519 public key: {e}")))?;
-        let mldsa65 = ml_dsa_65::PublicKey::try_from_bytes(mldsa65.into_bytes())
-            .map_err(|e| Error::Crypto(format!("invalid mldsa65 public key: {e}")))?;
-        Ok(PublicKey {
-            key_id,
-            ed25519,
-            mldsa65,
-        })
+    pub fn from_parts(key_id: KeyId, ed25519: Ed25519PublicKey, mldsa65: MlDsa65PublicKey) -> Result<Self, Error> {
+        let ed25519 = ed25519::VerifyingKey::from_bytes(ed25519.as_bytes()).map_err(|e| Error::Crypto(format!("invalid ed25519 public key: {e}")))?;
+        let mldsa65 =
+            ml_dsa_65::PublicKey::try_from_bytes(mldsa65.into_bytes()).map_err(|e| Error::Crypto(format!("invalid mldsa65 public key: {e}")))?;
+        Ok(PublicKey { key_id, ed25519, mldsa65 })
     }
 }

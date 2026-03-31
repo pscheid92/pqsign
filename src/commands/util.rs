@@ -79,18 +79,13 @@ mod tests {
     #[test]
     fn test_resolve_key_path_default_uses_home_dir() {
         let path = resolve_key_path(None, "default.key").unwrap();
-        let expected = home::home_dir()
-            .unwrap()
-            .join(".pqsign")
-            .join("default.key");
+        let expected = home::home_dir().unwrap().join(".pqsign").join("default.key");
         assert_eq!(path, expected);
     }
 
     #[test]
     fn test_resolve_signature_path_with_some() {
-        let path =
-            resolve_signature_path(Some(PathBuf::from("custom.pqsig")), Path::new("data.txt"))
-                .unwrap();
+        let path = resolve_signature_path(Some(PathBuf::from("custom.pqsig")), Path::new("data.txt")).unwrap();
         assert_eq!(path, PathBuf::from("custom.pqsig"));
     }
 
@@ -108,19 +103,14 @@ mod tests {
 
     #[test]
     fn test_expand_tilde_in_key_path() {
-        let path =
-            resolve_key_path(Some(PathBuf::from("~/.pqsign/my.key")), "default.key").unwrap();
+        let path = resolve_key_path(Some(PathBuf::from("~/.pqsign/my.key")), "default.key").unwrap();
         let expected = home::home_dir().unwrap().join(".pqsign/my.key");
         assert_eq!(path, expected);
     }
 
     #[test]
     fn test_expand_tilde_in_signature_path() {
-        let path = resolve_signature_path(
-            Some(PathBuf::from("~/sigs/my.pqsig")),
-            Path::new("data.txt"),
-        )
-        .unwrap();
+        let path = resolve_signature_path(Some(PathBuf::from("~/sigs/my.pqsig")), Path::new("data.txt")).unwrap();
         let expected = home::home_dir().unwrap().join("sigs/my.pqsig");
         assert_eq!(path, expected);
     }

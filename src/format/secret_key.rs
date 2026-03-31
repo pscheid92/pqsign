@@ -17,11 +17,7 @@ const PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65SecretKey::LEN + KeyId
 
 // -- Public API --
 
-pub fn write(
-    path: &Path,
-    secret_key: &SecretKey,
-    password: Zeroizing<String>,
-) -> Result<(), Error> {
+pub fn write(path: &Path, secret_key: &SecretKey, password: Zeroizing<String>) -> Result<(), Error> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).io_context(path)?;
     }
@@ -34,10 +30,7 @@ pub fn read(path: &Path, password: Zeroizing<String>) -> Result<SecretKey, Error
     read_with(path, |_| Ok(password))
 }
 
-pub fn read_with(
-    path: &Path,
-    password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>,
-) -> Result<SecretKey, Error> {
+pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>) -> Result<SecretKey, Error> {
     let data = fs::read(path).io_context(path)?;
     let mut r = Cursor::new(data.as_slice());
     let header = read_and_validate_header(&mut r)?;
@@ -60,9 +53,7 @@ pub fn read_with(
     let (ed25519, mldsa65, payload_key_id) = deserialize_payload(&plaintext)?;
 
     if payload_key_id != header.key_id {
-        return Err(Error::Crypto(
-            "decrypted key ID doesn't match header — file may be corrupt".into(),
-        ));
+        return Err(Error::Crypto("decrypted key ID doesn't match header — file may be corrupt".into()));
     }
 
     SecretKey::from_parts(header.key_id, ed25519, mldsa65)
@@ -102,17 +93,9 @@ fn serialize_payload(secret_key: &SecretKey) -> Result<Zeroizing<Vec<u8>>, Error
     Ok(buf)
 }
 
-type EncryptedPayload = (
-    Kdf,
-    [u8; ARGON2_SALT_LEN],
-    [u8; XCHACHA20_NONCE_LEN],
-    Vec<u8>,
-);
+type EncryptedPayload = (Kdf, [u8; ARGON2_SALT_LEN], [u8; XCHACHA20_NONCE_LEN], Vec<u8>);
 
-fn encrypt_payload(
-    payload: &[u8],
-    password: &Zeroizing<String>,
-) -> Result<EncryptedPayload, Error> {
+fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>) -> Result<EncryptedPayload, Error> {
     let mut rng = rand::rng();
 
     let mut salt = [0u8; ARGON2_SALT_LEN];
@@ -122,14 +105,7 @@ fn encrypt_payload(
     rng.fill_bytes(&mut nonce);
 
     let k = Kdf::argon2id();
-    let ct = crypto::encrypt(
-        payload,
-        password.as_bytes(),
-        k.mem_limit(),
-        k.ops_limit(),
-        &salt,
-        &nonce,
-    )?;
+    let ct = crypto::encrypt(payload, password.as_bytes(), k.mem_limit(), k.ops_limit(), &salt, &nonce)?;
 
     Ok((k, salt, nonce, ct))
 }

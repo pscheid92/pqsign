@@ -16,15 +16,9 @@ fn main() {
 #[derive(Subcommand)]
 enum Command {
     /// Generate a new key pair
-    #[command(
-        after_help = "The public key is written alongside the secret key with a .pub extension."
-    )]
+    #[command(after_help = "The public key is written alongside the secret key with a .pub extension.")]
     Generate {
-        #[arg(
-            short = 's',
-            long = "secret-key",
-            help = "Secret key file path [default: ~/.pqsign/default.key]"
-        )]
+        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
         secret_key: Option<PathBuf>,
 
         /// Overwrite existing key files
@@ -37,11 +31,7 @@ enum Command {
         /// File to sign
         file: PathBuf,
 
-        #[arg(
-            short = 's',
-            long = "secret-key",
-            help = "Secret key file path [default: ~/.pqsign/default.key]"
-        )]
+        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
         secret_key: Option<PathBuf>,
 
         /// Signature file path
@@ -97,11 +87,7 @@ enum Command {
 }
 
 #[derive(Parser)]
-#[command(
-    name = "pqsign",
-    version,
-    about = "Hybrid post-quantum file signing (Ed25519 + ML-DSA-65)"
-)]
+#[command(name = "pqsign", version, about = "Hybrid post-quantum file signing (Ed25519 + ML-DSA-65)")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -110,10 +96,7 @@ struct Cli {
 impl Cli {
     fn run(self) -> Result<(), Error> {
         match self.command {
-            Command::Generate {
-                secret_key,
-                overwrite,
-            } => generate::run(generate::Options {
+            Command::Generate { secret_key, overwrite } => generate::run(generate::Options {
                 secret_key,
                 password: None,
                 overwrite,
@@ -149,12 +132,7 @@ impl Cli {
             Command::Inspect { file } => inspect::run(file),
 
             Command::Completions { shell } => {
-                clap_complete::generate(
-                    shell,
-                    &mut Cli::command(),
-                    "pqsign",
-                    &mut std::io::stdout(),
-                );
+                clap_complete::generate(shell, &mut Cli::command(), "pqsign", &mut std::io::stdout());
                 Ok(())
             }
 

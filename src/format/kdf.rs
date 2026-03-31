@@ -36,21 +36,13 @@ pub(super) fn read_from(r: &mut impl std::io::Read) -> Result<Kdf, Error> {
     let ops_limit = super::read_u64_le(r)?;
 
     match kdf_byte {
-        KDF_ARGON2ID_BYTE => Ok(Kdf::Argon2id {
-            mem_limit,
-            ops_limit,
-        }),
-        other => Err(Error::InvalidFormat(format!(
-            "unknown KDF algorithm: 0x{other:02x}"
-        ))),
+        KDF_ARGON2ID_BYTE => Ok(Kdf::Argon2id { mem_limit, ops_limit }),
+        other => Err(Error::InvalidFormat(format!("unknown KDF algorithm: 0x{other:02x}"))),
     }
 }
 
 pub(super) fn write_to(kdf: &Kdf, w: &mut impl std::io::Write) -> Result<(), Error> {
-    let Kdf::Argon2id {
-        mem_limit,
-        ops_limit,
-    } = kdf;
+    let Kdf::Argon2id { mem_limit, ops_limit } = kdf;
 
     super::write_u8(w, KDF_ARGON2ID_BYTE)?;
     super::write_u64_le(w, *mem_limit)?;

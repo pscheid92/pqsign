@@ -11,11 +11,7 @@ fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
 }
 
-fn keygen(
-    secret_key: PathBuf,
-    password: &str,
-    overwrite: bool,
-) -> Result<(), pqsign::errors::Error> {
+fn keygen(secret_key: PathBuf, password: &str, overwrite: bool) -> Result<(), pqsign::errors::Error> {
     generate::run(generate::Options {
         secret_key: Some(secret_key),
         password: Some(pw(password)),
@@ -23,12 +19,7 @@ fn keygen(
     })
 }
 
-fn sig(
-    file: PathBuf,
-    secret_key: PathBuf,
-    sig_file: Option<PathBuf>,
-    trusted_comment: Option<String>,
-) -> Result<(), pqsign::errors::Error> {
+fn sig(file: PathBuf, secret_key: PathBuf, sig_file: Option<PathBuf>, trusted_comment: Option<String>) -> Result<(), pqsign::errors::Error> {
     sign::run(sign::Options {
         file,
         secret_key: Some(secret_key),
@@ -61,13 +52,7 @@ fn test_generate_sign_verify_roundtrip() {
     fs::write(&file_path, b"hello post-quantum world").unwrap();
 
     keygen(sk_path.clone(), "test-pw", false).unwrap();
-    sig(
-        file_path.clone(),
-        sk_path.clone(),
-        Some(sig_path.clone()),
-        None,
-    )
-    .unwrap();
+    sig(file_path.clone(), sk_path.clone(), Some(sig_path.clone()), None).unwrap();
     ver(file_path.clone(), pk_path.clone(), sig_path.clone()).unwrap();
 
     inspect::run(pk_path).unwrap();
@@ -85,13 +70,7 @@ fn test_generate_sign_verify_with_custom_comment() {
     fs::write(&file_path, b"binary data").unwrap();
 
     keygen(sk_path.clone(), "test-pw", false).unwrap();
-    sig(
-        file_path.clone(),
-        sk_path,
-        Some(sig_path.clone()),
-        Some("release v1.0".into()),
-    )
-    .unwrap();
+    sig(file_path.clone(), sk_path, Some(sig_path.clone()), Some("release v1.0".into())).unwrap();
 
     let s = format::read_signature(&sig_path).unwrap();
     assert!(s.trusted_comment.contains("release v1.0"));

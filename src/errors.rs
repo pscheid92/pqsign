@@ -8,10 +8,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     #[error("{context}: {}", io_message(.source))]
-    IoPath {
-        source: std::io::Error,
-        context: String,
-    },
+    IoPath { source: std::io::Error, context: String },
 
     #[error("invalid format: {0}")]
     InvalidFormat(String),

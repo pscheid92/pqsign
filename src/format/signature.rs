@@ -51,8 +51,7 @@ fn decode(data: &[u8]) -> Result<Signature, Error> {
     validate_comment_len(comment_len as usize)?;
 
     let comment_bytes = super::read_vec(&mut r, comment_len as usize)?;
-    let trusted_comment = String::from_utf8(comment_bytes)
-        .map_err(|_| Error::InvalidFormat("trusted comment is not valid UTF-8".into()))?;
+    let trusted_comment = String::from_utf8(comment_bytes).map_err(|_| Error::InvalidFormat("trusted comment is not valid UTF-8".into()))?;
 
     Ok(Signature {
         key_id: header.key_id,

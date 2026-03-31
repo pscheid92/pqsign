@@ -22,8 +22,5 @@ pub fn run(file: PathBuf) -> Result<(), Error> {
 }
 
 fn has_pqsign_extension(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()),
-        Some("key" | "pub" | "pqsig")
-    )
+    matches!(path.extension().and_then(|e| e.to_str()), Some("key" | "pub" | "pqsig"))
 }

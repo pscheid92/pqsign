@@ -4,10 +4,7 @@ mod types;
 
 pub use keys::{KeyPair, PublicKey, SecretKey};
 pub use signature::Signature;
-pub use types::{
-    Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey,
-    MlDsa65SecretKey, MlDsa65Signature,
-};
+pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Signature};
 
 use std::fs::File;
 use std::io::{self, BufReader};
@@ -70,10 +67,7 @@ mod tests {
         let (sk, pk) = KeyPair::new().into_parts();
         let sig = sk.sign(&file, "test").unwrap();
         std::fs::write(&file, b"tampered!").unwrap();
-        assert!(matches!(
-            sig.verify(&pk, &file),
-            Err(Error::SignatureVerificationFailed)
-        ));
+        assert!(matches!(sig.verify(&pk, &file), Err(Error::SignatureVerificationFailed)));
     }
 
     #[test]
@@ -91,10 +85,7 @@ mod tests {
         let (sk, mut pk) = KeyPair::new().into_parts();
         let sig = sk.sign(&file, "test").unwrap();
         pk.key_id = KeyId([0xFF; KeyId::LEN]);
-        assert!(matches!(
-            sig.verify(&pk, &file),
-            Err(Error::KeyIdMismatch { .. })
-        ));
+        assert!(matches!(sig.verify(&pk, &file), Err(Error::KeyIdMismatch { .. })));
     }
 
     #[test]
@@ -103,10 +94,7 @@ mod tests {
         let (sk, pk) = KeyPair::new().into_parts();
         let mut sig = sk.sign(&file, "original").unwrap();
         sig.trusted_comment = "tampered".to_string();
-        assert!(matches!(
-            sig.verify(&pk, &file),
-            Err(Error::SignatureVerificationFailed)
-        ));
+        assert!(matches!(sig.verify(&pk, &file), Err(Error::SignatureVerificationFailed)));
     }
 
     #[test]
@@ -115,10 +103,7 @@ mod tests {
         let (sk, pk) = KeyPair::new().into_parts();
         let mut sig = sk.sign(&file, "test").unwrap();
         sig.ed25519.0[0] ^= 0x01;
-        assert!(matches!(
-            sig.verify(&pk, &file),
-            Err(Error::SignatureVerificationFailed)
-        ));
+        assert!(matches!(sig.verify(&pk, &file), Err(Error::SignatureVerificationFailed)));
     }
 
     #[test]
@@ -127,10 +112,7 @@ mod tests {
         let (sk, pk) = KeyPair::new().into_parts();
         let mut sig = sk.sign(&file, "test").unwrap();
         sig.mldsa65.0[0] ^= 0x01;
-        assert!(matches!(
-            sig.verify(&pk, &file),
-            Err(Error::SignatureVerificationFailed)
-        ));
+        assert!(matches!(sig.verify(&pk, &file), Err(Error::SignatureVerificationFailed)));
     }
 
     #[test]

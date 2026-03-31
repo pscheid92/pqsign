@@ -24,10 +24,7 @@ fn decode(data: &[u8]) -> Result<PublicKey, Error> {
 
     let header = FileHeader::read(&mut r)?;
     if header.file_type != FileType::PublicKey {
-        return Err(Error::InvalidFormat(format!(
-            "expected public key file, got: {:?}",
-            header.file_type
-        )));
+        return Err(Error::InvalidFormat(format!("expected public key file, got: {:?}", header.file_type)));
     }
 
     let ed25519_pk = Ed25519PublicKey::read_from(&mut r)?;
@@ -64,12 +61,8 @@ fn strip_prefix(line: &str) -> Result<&str, Error> {
     }
 
     if line.starts_with("pqsign:v") {
-        return Err(Error::InvalidFormat(
-            "public key requires a newer version of pqsign".into(),
-        ));
+        return Err(Error::InvalidFormat("public key requires a newer version of pqsign".into()));
     }
 
-    Err(Error::InvalidFormat(
-        "not a pqsign public key (missing prefix)".into(),
-    ))
+    Err(Error::InvalidFormat("not a pqsign public key (missing prefix)".into()))
 }

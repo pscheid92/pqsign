@@ -66,10 +66,7 @@ fn test_inspect_signature_file() {
 
     let info = format::inspect_file(&sig_path).unwrap();
     match &info {
-        FileInfo::Signature {
-            key_id,
-            trusted_comment,
-        } => {
+        FileInfo::Signature { key_id, trusted_comment } => {
             assert_eq!(*key_id, sig.key_id());
             assert_eq!(trusted_comment, "my comment");
         }

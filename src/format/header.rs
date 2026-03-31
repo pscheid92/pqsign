@@ -25,9 +25,7 @@ impl FileType {
             0x01 => Ok(FileType::PublicKey),
             0x02 => Ok(FileType::SecretKey),
             0x03 => Ok(FileType::Signature),
-            _ => Err(Error::InvalidFormat(format!(
-                "unknown file type: 0x{b:02x}"
-            ))),
+            _ => Err(Error::InvalidFormat(format!("unknown file type: 0x{b:02x}"))),
         }
     }
 }
@@ -64,11 +62,7 @@ impl FileHeader {
         let file_type = FileType::from_byte(super::read_u8(r)?)?;
         let key_id = KeyId::read_from(r)?;
 
-        Ok(FileHeader {
-            version,
-            file_type,
-            key_id,
-        })
+        Ok(FileHeader { version, file_type, key_id })
     }
 
     pub fn write_to(&self, w: &mut impl std::io::Write) -> Result<(), Error> {

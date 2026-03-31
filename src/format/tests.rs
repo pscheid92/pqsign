@@ -109,10 +109,7 @@ fn test_public_key_roundtrip() {
 
     assert_eq!(pk.key_id, pk2.key_id);
     assert_eq!(pk.ed25519.to_bytes(), pk2.ed25519.to_bytes());
-    assert_eq!(
-        pk.mldsa65.clone().into_bytes(),
-        pk2.mldsa65.clone().into_bytes()
-    );
+    assert_eq!(pk.mldsa65.clone().into_bytes(), pk2.mldsa65.clone().into_bytes());
 }
 
 #[test]
@@ -147,10 +144,7 @@ fn test_public_key_missing_prefix() {
     let path = dir.path().join("bad.pub");
     std::fs::write(&path, "not-a-pqsign-key\n").unwrap();
 
-    assert!(matches!(
-        read_public_key(&path),
-        Err(Error::InvalidFormat(_))
-    ));
+    assert!(matches!(read_public_key(&path), Err(Error::InvalidFormat(_))));
 }
 
 #[test]
@@ -192,10 +186,7 @@ fn test_secret_key_roundtrip_with_password() {
 
     assert_eq!(sk.key_id, sk2.key_id);
     assert_eq!(sk.ed25519.to_bytes(), sk2.ed25519.to_bytes());
-    assert_eq!(
-        sk.mldsa65.clone().into_bytes(),
-        sk2.mldsa65.clone().into_bytes()
-    );
+    assert_eq!(sk.mldsa65.clone().into_bytes(), sk2.mldsa65.clone().into_bytes());
 }
 
 #[test]
@@ -205,10 +196,7 @@ fn test_secret_key_wrong_password() {
     let (sk, _) = KeyPair::new().into_parts();
 
     write_secret_key(&path, &sk, pw("correct")).unwrap();
-    assert!(matches!(
-        read_secret_key(&path, pw("wrong")),
-        Err(Error::WrongPassword)
-    ));
+    assert!(matches!(read_secret_key(&path, pw("wrong")), Err(Error::WrongPassword)));
 }
 
 #[test]
@@ -367,10 +355,7 @@ fn test_public_key_truncated_base64() {
     let path = dir.path().join("bad.pub");
     std::fs::write(&path, "pqsign:v1:AQID\n").unwrap();
 
-    assert!(matches!(
-        read_public_key(&path),
-        Err(Error::InvalidFormat(_))
-    ));
+    assert!(matches!(read_public_key(&path), Err(Error::InvalidFormat(_))));
 }
 
 // -- Public key: wrong file type in binary decode --
@@ -385,9 +370,7 @@ fn test_public_key_wrong_file_type_in_binary() {
 
     let key_id = KeyId([1, 2, 3, 4, 5, 6, 7, 8]);
     let mut blob = Vec::new();
-    FileHeader::new(FileType::SecretKey, key_id)
-        .write_to(&mut blob)
-        .unwrap();
+    FileHeader::new(FileType::SecretKey, key_id).write_to(&mut blob).unwrap();
     blob.extend_from_slice(&[0u8; 4096]);
 
     let line = format!("pqsign:v1:{}\n", STANDARD.encode(&blob));
@@ -415,10 +398,7 @@ fn test_read_secret_key_on_signature_file_fails() {
     let sig = sk.sign(&file, "test").unwrap();
     write_signature(&sig_path, &sig).unwrap();
 
-    assert!(matches!(
-        read_secret_key(&sig_path, pw("test")),
-        Err(Error::InvalidFormat(_))
-    ));
+    assert!(matches!(read_secret_key(&sig_path, pw("test")), Err(Error::InvalidFormat(_))));
 }
 
 #[test]
@@ -428,10 +408,7 @@ fn test_read_signature_on_secret_key_file_fails() {
     let (sk, _) = KeyPair::new().into_parts();
     write_secret_key(&sk_path, &sk, pw("test")).unwrap();
 
-    assert!(matches!(
-        read_signature(&sk_path),
-        Err(Error::InvalidFormat(_))
-    ));
+    assert!(matches!(read_signature(&sk_path), Err(Error::InvalidFormat(_))));
 }
 
 #[test]
@@ -456,9 +433,7 @@ fn test_inspect_binary_public_key_file() {
     let key_id = KeyId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
 
     let mut buf = Vec::new();
-    FileHeader::new(FileType::PublicKey, key_id)
-        .write_to(&mut buf)
-        .unwrap();
+    FileHeader::new(FileType::PublicKey, key_id).write_to(&mut buf).unwrap();
     buf.extend_from_slice(&[0u8; 64]);
     std::fs::write(&path, &buf).unwrap();
 

@@ -47,9 +47,7 @@ impl Signature {
     fn verify_ed25519(&self, pk: &PublicKey, prehash: &[u8]) -> Result<(), Error> {
         let signature = ed25519::Signature::from_bytes(self.ed25519.as_bytes());
         let msg = [ED25519_CONTEXT, prehash, self.trusted_comment.as_bytes()].concat();
-        pk.ed25519
-            .verify(&msg, &signature)
-            .map_err(|_| Error::SignatureVerificationFailed)
+        pk.ed25519.verify(&msg, &signature).map_err(|_| Error::SignatureVerificationFailed)
     }
 
     fn verify_mldsa65(&self, pk: &PublicKey, prehash: &[u8]) -> Result<(), Error> {

@@ -30,9 +30,7 @@ pub fn read_password(prompt: &str) -> Result<Zeroizing<String>, Error> {
         Ok(Zeroizing::new(line.trim_end().to_string()))
     };
 
-    rpassword::prompt_password(prompt)
-        .map(Zeroizing::new)
-        .or_else(fallback)
+    rpassword::prompt_password(prompt).map(Zeroizing::new).or_else(fallback)
 }
 
 #[cfg(test)]

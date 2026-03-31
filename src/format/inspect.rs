@@ -11,17 +11,9 @@ use crate::format::kdf::Kdf;
 // -- Public API --
 
 pub enum FileInfo {
-    PublicKey {
-        key_id: KeyId,
-    },
-    SecretKey {
-        key_id: KeyId,
-        kdf: Kdf,
-    },
-    Signature {
-        key_id: KeyId,
-        trusted_comment: String,
-    },
+    PublicKey { key_id: KeyId },
+    SecretKey { key_id: KeyId, kdf: Kdf },
+    Signature { key_id: KeyId, trusted_comment: String },
 }
 
 pub fn inspect_file(path: &Path) -> Result<FileInfo, Error> {
@@ -47,20 +39,14 @@ impl fmt::Display for FileInfo {
                 writeln!(f, "Key ID:     {key_id}")?;
                 writeln!(f, "Algorithms: Ed25519 + ML-DSA-65")?;
                 match kdf {
-                    Kdf::Argon2id {
-                        mem_limit,
-                        ops_limit,
-                    } => {
+                    Kdf::Argon2id { mem_limit, ops_limit } => {
                         writeln!(f, "KDF:        Argon2id")?;
                         writeln!(f, "Memory:     {} MiB", mem_limit / (1024 * 1024))?;
                         write!(f, "Ops:        {ops_limit}")
                     }
                 }
             }
-            FileInfo::Signature {
-                key_id,
-                trusted_comment,
-            } => {
+            FileInfo::Signature { key_id, trusted_comment } => {
                 writeln!(f, "Type:            Signature")?;
                 writeln!(f, "Key ID:          {key_id}")?;
                 writeln!(f, "Algorithms:      Ed25519 + ML-DSA-65")?;
@@ -73,9 +59,7 @@ impl fmt::Display for FileInfo {
 // -- Helpers --
 
 fn read_text_if_public_key(path: &Path) -> Option<String> {
-    fs::read_to_string(path)
-        .ok()
-        .filter(|content| content.trim_end().starts_with("pqsign:"))
+    fs::read_to_string(path).ok().filter(|content| content.trim_end().starts_with("pqsign:"))
 }
 
 fn inspect_binary(path: &Path) -> Result<FileInfo, Error> {
@@ -84,15 +68,10 @@ fn inspect_binary(path: &Path) -> Result<FileInfo, Error> {
     let header = FileHeader::read(&mut r)?;
 
     let result = match header.file_type {
-        FileType::PublicKey => FileInfo::PublicKey {
-            key_id: header.key_id,
-        },
+        FileType::PublicKey => FileInfo::PublicKey { key_id: header.key_id },
         FileType::SecretKey => {
             let kdf = kdf::read_from(&mut r)?;
-            FileInfo::SecretKey {
-                key_id: header.key_id,
-                kdf,
-            }
+            FileInfo::SecretKey { key_id: header.key_id, kdf }
         }
         FileType::Signature => {
             let sig = super::signature::read(path)?;

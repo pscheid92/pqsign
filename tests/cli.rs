@@ -16,14 +16,7 @@ fn generate_key(sk: &std::path::Path) {
 
 fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path) {
     cmd()
-        .args([
-            "sign",
-            file.to_str().unwrap(),
-            "-s",
-            sk.to_str().unwrap(),
-            "-x",
-            sig.to_str().unwrap(),
-        ])
+        .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
         .write_stdin("test-pw\n")
         .assert()
         .success();
@@ -33,11 +26,7 @@ fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path
 
 #[test]
 fn test_cli_version_subcommand() {
-    cmd()
-        .arg("version")
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("pqsign "));
+    cmd().arg("version").assert().success().stdout(predicates::str::contains("pqsign "));
 }
 
 // -- generate subcommand --
@@ -104,14 +93,7 @@ fn test_cli_sign_and_verify() {
     sign_file(&file, &sk, &sig);
 
     cmd()
-        .args([
-            "verify",
-            file.to_str().unwrap(),
-            "-p",
-            pk.to_str().unwrap(),
-            "-x",
-            sig.to_str().unwrap(),
-        ])
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicates::str::contains("Signature: OK"));
@@ -132,14 +114,7 @@ fn test_cli_verify_tampered_fails() {
     fs::write(&file, b"tampered").unwrap();
 
     cmd()
-        .args([
-            "verify",
-            file.to_str().unwrap(),
-            "-p",
-            pk.to_str().unwrap(),
-            "-x",
-            sig.to_str().unwrap(),
-        ])
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicates::str::contains("error:"));
@@ -243,14 +218,7 @@ fn test_cli_sign_with_custom_comment() {
         .success();
 
     cmd()
-        .args([
-            "verify",
-            file.to_str().unwrap(),
-            "-p",
-            pk.to_str().unwrap(),
-            "-x",
-            sig.to_str().unwrap(),
-        ])
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicates::str::contains("release v2.0"));
@@ -346,14 +314,7 @@ fn test_cli_verify_inline_public_key() {
     let pk_string = fs::read_to_string(&pk).unwrap();
 
     cmd()
-        .args([
-            "verify",
-            file.to_str().unwrap(),
-            "-P",
-            pk_string.trim(),
-            "-x",
-            sig.to_str().unwrap(),
-        ])
+        .args(["verify", file.to_str().unwrap(), "-P", pk_string.trim(), "-x", sig.to_str().unwrap()])
         .assert()
         .success()
         .stdout(predicates::str::contains("Signature: OK"))

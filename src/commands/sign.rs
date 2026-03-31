@@ -46,10 +46,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 }
 
 fn build_trusted_comment(file: &Path, comment: Option<&str>) -> String {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
 
     match comment {
         Some(c) => format!("timestamp:{ts}\tfile:{}\t{c}", file.display()),
