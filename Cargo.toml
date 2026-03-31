@@ -8,6 +8,7 @@ repository = "https://github.com/pscheid92/pqsign"
 readme = "README.md"
 keywords = ["cryptography", "post-quantum", "signing", "ed25519", "ml-dsa"]
 categories = ["command-line-utilities", "cryptography"]
+exclude = ["docs/", "benches/", ".github/", ".idea/", "release.key.pub"]
 
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
