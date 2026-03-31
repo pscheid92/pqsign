@@ -29,6 +29,17 @@ fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path
         .success();
 }
 
+// -- version subcommand --
+
+#[test]
+fn test_cli_version_subcommand() {
+    cmd()
+        .arg("version")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("pqsign "));
+}
+
 // -- generate subcommand --
 
 #[test]

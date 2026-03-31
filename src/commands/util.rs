@@ -20,7 +20,7 @@ pub fn default_key_dir() -> Result<PathBuf, Error> {
 
 pub fn resolve_key_path(path: Option<PathBuf>, default_filename: &str) -> Result<PathBuf, Error> {
     let path = match path {
-        Some(p) => p,
+        Some(p) => expand_tilde(p),
         None => default_key_dir()?.join(default_filename),
     };
     validate_file_path(&path)?;
@@ -29,9 +29,19 @@ pub fn resolve_key_path(path: Option<PathBuf>, default_filename: &str) -> Result
 
 pub fn resolve_signature_path(sig_file: Option<PathBuf>, file: &Path) -> Result<PathBuf, Error> {
     let path = sig_file
+        .map(expand_tilde)
         .unwrap_or_else(|| PathBuf::from(format!("{}{SIG_FILE_EXTENSION}", file.display())));
     validate_file_path(&path)?;
     Ok(path)
+}
+
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    if let Ok(rest) = path.strip_prefix("~")
+        && let Some(home) = home::home_dir()
+    {
+        return home.join(rest);
+    }
+    path
 }
 
 #[cfg(test)]
@@ -94,5 +104,30 @@ mod tests {
     fn test_resolve_signature_path_preserves_directory() {
         let path = resolve_signature_path(None, Path::new("dir/file.txt")).unwrap();
         assert_eq!(path, PathBuf::from("dir/file.txt.pqsig"));
+    }
+
+    #[test]
+    fn test_expand_tilde_in_key_path() {
+        let path =
+            resolve_key_path(Some(PathBuf::from("~/.pqsign/my.key")), "default.key").unwrap();
+        let expected = home::home_dir().unwrap().join(".pqsign/my.key");
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_expand_tilde_in_signature_path() {
+        let path = resolve_signature_path(
+            Some(PathBuf::from("~/sigs/my.pqsig")),
+            Path::new("data.txt"),
+        )
+        .unwrap();
+        let expected = home::home_dir().unwrap().join("sigs/my.pqsig");
+        assert_eq!(path, expected);
+    }
+
+    #[test]
+    fn test_no_expand_without_tilde() {
+        let path = expand_tilde(PathBuf::from("/absolute/path.key"));
+        assert_eq!(path, PathBuf::from("/absolute/path.key"));
     }
 }

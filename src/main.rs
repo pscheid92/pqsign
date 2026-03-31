@@ -91,6 +91,9 @@ enum Command {
         /// Shell to generate completions for
         shell: Shell,
     },
+
+    /// Print version information
+    Version,
 }
 
 #[derive(Parser)]
@@ -152,6 +155,11 @@ impl Cli {
                     "pqsign",
                     &mut std::io::stdout(),
                 );
+                Ok(())
+            }
+
+            Command::Version => {
+                println!("pqsign {}", env!("CARGO_PKG_VERSION"));
                 Ok(())
             }
         }

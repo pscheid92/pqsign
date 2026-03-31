@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: tar czf pqsign-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release pqsign
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path target/${{ matrix.target }}/release/pqsign.exe -DestinationPath pqsign-${{ matrix.target }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pqsign-${{ matrix.target }}
+          path: pqsign-${{ matrix.target }}.${{ matrix.archive }}
+
+  sign-and-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract signing binary
+        run: |
+          tar xzf artifacts/pqsign-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin
+          chmod +x /usr/local/bin/pqsign
+
+      - name: Decode signing key
+        run: echo "${{ secrets.PQSIGN_SECRET_KEY }}" | base64 -d > /tmp/release.key
+
+      - name: Sign release archives
+        run: |
+          for archive in artifacts/*; do
+            echo "${{ secrets.PQSIGN_PASSWORD }}" | pqsign sign "$archive" -s /tmp/release.key
+          done
+
+      - name: Shred signing key
+        if: always()
+        run: shred -u /tmp/release.key 2>/dev/null || rm -f /tmp/release.key
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/*

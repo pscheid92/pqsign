@@ -26,5 +26,14 @@ home = "0.5"
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
+criterion = "0.5"
 predicates = "3.1.4"
 tempfile = "3"
+
+[[bench]]
+name = "crypto"
+harness = false
+
+[[bench]]
+name = "cli"
+harness = false

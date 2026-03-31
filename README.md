@@ -6,9 +6,13 @@ Both signatures must verify for a file to be considered authentic. This provides
 
 ## Install
 
+Download a prebuilt binary from the [latest release](https://github.com/pscheid92/pqsign/releases/latest), or build from source:
+
 ```bash
 cargo install --path .
 ```
+
+All release binaries are signed with pqsign itself. See [install & verification](docs/install.md) for details.
 
 ## Quick Start
 
@@ -61,6 +65,14 @@ pqsign verify document.pdf -q                      # quiet mode (exit code only)
 
 Exits 0 if the signature is valid, 1 otherwise.
 
+### Shell completions
+
+```bash
+pqsign completions bash > ~/.local/share/bash-completion/completions/pqsign
+pqsign completions zsh > ~/.zfunc/_pqsign
+pqsign completions fish > ~/.config/fish/completions/pqsign.fish
+```
+
 ### Inspect files
 
 ```bash
@@ -79,6 +91,8 @@ pqsign inspect document.pdf      # auto-finds document.pdf.pqsig
 
 Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. All secret material is zeroized on drop.
 
+**Password guidance**: The Argon2id KDF makes brute-force expensive (~2.6 attempts/sec per core), but a weak password is still crackable. Use a passphrase of 4+ random words or a 20+ character random password from a password manager. See [brute-force resistance](docs/brute-force-resistance.md) for details.
+
 ## File Formats
 
 | File | Format | Extension |
@@ -88,6 +102,14 @@ Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **
 | Signature | Binary | `.pqsig` |
 
 All binary files start with magic bytes `PQSN`, a format version, and an 8-byte key ID for cross-referencing.
+
+## Documentation
+
+- [Install & verification](docs/install.md) — prebuilt binaries, build from source, signature verification
+- [Cryptographic design](docs/cryptography.md) — algorithm choices, signature construction, key encryption
+- [Benchmarks](docs/benchmarks.md) — performance of library and CLI operations
+- [Brute-force resistance](docs/brute-force-resistance.md) — password cracking analysis with CPU and GPU estimates
+- [KDF comparison](docs/kdf-comparison.md) — Argon2id parameter trade-offs
 
 ## License
 
