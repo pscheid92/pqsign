@@ -7,7 +7,7 @@ pub use signature::Signature;
 pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Signature};
 
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 use blake2::{Blake2b512, Digest};
@@ -19,8 +19,16 @@ const MLDSA65_CONTEXT: &[u8] = b"pqsign-mldsa65";
 
 fn prehash_file(path: &Path) -> Result<[u8; 64], Error> {
     let file = File::open(path).io_context(path)?;
+    let mut reader = BufReader::new(file);
     let mut hasher = Blake2b512::new();
-    io::copy(&mut BufReader::new(file), &mut hasher).io_context(path)?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf).io_context(path)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
     Ok(hasher.finalize().into())
 }
 

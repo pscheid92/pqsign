@@ -2,6 +2,7 @@
 name = "pqsign"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
 description = "Hybrid post-quantum file signing (Ed25519 + ML-DSA-65)"
 license = "MIT"
 repository = "https://github.com/pscheid92/pqsign"
@@ -11,14 +12,14 @@ categories = ["command-line-utilities", "cryptography"]
 exclude = ["docs/", "benches/", ".github/", ".idea/", "release.key.pub"]
 
 [dependencies]
-ed25519-dalek = { version = "2", features = ["rand_core", "zeroize"] }
+ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
 fips204 = "0.4"
-blake2 = "0.10"
-argon2 = "0.5"
-chacha20poly1305 = "0.10"
+blake2 = "0.11"
+argon2 = "0.6"
+chacha20poly1305 = "0.11"
 rand = "0.10"
 clap = { version = "4", features = ["derive"] }
-base64 = "0.22"
+base64 = "0.23"
 thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 rpassword = "7"
@@ -27,7 +28,7 @@ home = "0.5"
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
-criterion = "0.5"
+criterion = "0.8"
 predicates = "3.1.4"
 tempfile = "3"
 

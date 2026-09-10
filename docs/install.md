@@ -26,7 +26,7 @@ Or from crates.io (once published):
 cargo install pqsign
 ```
 
-BSD and other platforms can build from source — the only requirement is a stable Rust toolchain.
+BSD and other platforms can build from source — the only requirement is Rust 1.88 or newer.
 
 ## Verify release binaries
 

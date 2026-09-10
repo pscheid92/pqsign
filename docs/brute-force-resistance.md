@@ -6,7 +6,7 @@ Analysis of how well pqsign's key encryption holds up if an attacker steals the 
 
 An attacker has obtained the encrypted `.key` file and attempts to recover the secret key by brute-forcing the password offline. Each attempt requires running the full Argon2id KDF (256 MiB, 3 iterations) before testing a candidate password.
 
-From [benchmarks](benchmarks.md), each attempt costs ~378 ms on a single CPU core (~2.6 attempts/sec).
+From [benchmarks](benchmarks.md), each attempt costs ~390 ms on a single CPU core (~2.6 attempts/sec).
 
 ## GPU Parallelism
 

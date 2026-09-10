@@ -15,7 +15,7 @@ pub(super) fn encrypt(plaintext: &[u8], password: &[u8], mem_limit: u64, ops_lim
     let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|e| Error::Crypto(format!("xchacha20: {e}")))?;
 
     cipher
-        .encrypt(XNonce::from_slice(nonce), plaintext)
+        .encrypt(&parse_nonce(nonce)?, plaintext)
         .map_err(|e| Error::Crypto(format!("encrypt: {e}")))
 }
 
@@ -24,7 +24,11 @@ pub(super) fn decrypt(ciphertext: &[u8], password: &[u8], mem_limit: u64, ops_li
 
     let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|e| Error::Crypto(format!("xchacha20: {e}")))?;
 
-    cipher.decrypt(XNonce::from_slice(nonce), ciphertext).map_err(|_| Error::WrongPassword)
+    cipher.decrypt(&parse_nonce(nonce)?, ciphertext).map_err(|_| Error::WrongPassword)
+}
+
+fn parse_nonce(nonce: &[u8]) -> Result<XNonce, Error> {
+    XNonce::try_from(nonce).map_err(|e| Error::Crypto(format!("nonce: {e}")))
 }
 
 fn derive_key(mem_limit: u64, ops_limit: u64, password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; ENCRYPTION_KEY_LEN]>, Error> {
