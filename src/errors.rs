@@ -53,6 +53,17 @@ pub enum Error {
     Base64(#[from] base64::DecodeError),
 }
 
+impl Error {
+    /// Whether a signature was checked and does not verify: the file changed, or another key made it. Every
+    /// other error means the check could not happen or another command failed.
+    pub fn is_verification_failure(&self) -> bool {
+        matches!(
+            self,
+            Error::SignatureVerificationFailed | Error::KeyIdMismatch { .. } | Error::SignerMismatch { .. }
+        )
+    }
+}
+
 fn io_message(err: &std::io::Error) -> std::borrow::Cow<'static, str> {
     match err.kind() {
         std::io::ErrorKind::NotFound => "no such file or directory".into(),

@@ -1003,3 +1003,144 @@ fn test_cli_rejects_excessive_kdf_parameters_before_the_password() {
             .stderr(predicates::str::contains(expected));
     }
 }
+
+// -- exit status --
+
+/// 0 on success, 1 if a signature does not verify, 2 for any other error, like minisign and gpgv.
+#[test]
+fn test_cli_exit_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |name: &str| dir.path().join(name);
+    let arg = |name: &str| path(name).to_str().unwrap().to_owned();
+
+    fs::write(path("f.txt"), b"data").unwrap();
+    fs::write(path("g.txt"), b"other data").unwrap();
+    fs::write(path("wrong.txt"), b"wrong\n").unwrap();
+    generate_key(&path("a.key"));
+    generate_key(&path("b.key"));
+    sign_file(&path("f.txt"), &path("a.key"), &path("f.txt.pqsig"));
+    cmd()
+        .args([
+            "sign",
+            &arg("f.txt"),
+            "-s",
+            &arg("a.key"),
+            "-x",
+            &arg("f.v1.pqsig"),
+            "--format",
+            "v1",
+            "--password-stdin",
+        ])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+    fs::copy(path("f.txt.pqsig"), path("g.txt.pqsig")).unwrap();
+    fs::write(path("broken.pqsig"), &fs::read(path("f.txt.pqsig")).unwrap()[..100]).unwrap();
+
+    let cases: Vec<(&str, Vec<String>, i32)> = vec![
+        ("valid signature", vec!["verify".into(), arg("f.txt"), "-p".into(), arg("a.key.pub")], 0),
+        (
+            "file changed after signing",
+            vec!["verify".into(), arg("g.txt"), "-p".into(), arg("a.key.pub")],
+            1,
+        ),
+        (
+            "v2 signature, wrong key",
+            vec!["verify".into(), arg("f.txt"), "-p".into(), arg("b.key.pub")],
+            1,
+        ),
+        (
+            "v1 signature, wrong key",
+            vec![
+                "verify".into(),
+                arg("f.txt"),
+                "-p".into(),
+                arg("b.key.pub"),
+                "-x".into(),
+                arg("f.v1.pqsig"),
+            ],
+            1,
+        ),
+        (
+            "signed file missing",
+            vec![
+                "verify".into(),
+                arg("nope.txt"),
+                "-p".into(),
+                arg("a.key.pub"),
+                "-x".into(),
+                arg("f.txt.pqsig"),
+            ],
+            2,
+        ),
+        (
+            "signature file missing",
+            vec![
+                "verify".into(),
+                arg("g.txt"),
+                "-p".into(),
+                arg("a.key.pub"),
+                "-x".into(),
+                arg("nope.pqsig"),
+            ],
+            2,
+        ),
+        ("public key missing", vec!["verify".into(), arg("f.txt"), "-p".into(), arg("nope.pub")], 2),
+        (
+            "signature file truncated",
+            vec![
+                "verify".into(),
+                arg("f.txt"),
+                "-p".into(),
+                arg("a.key.pub"),
+                "-x".into(),
+                arg("broken.pqsig"),
+            ],
+            2,
+        ),
+        ("unknown option", vec!["verify".into(), arg("f.txt"), "--bogus".into()], 2),
+        (
+            "sign, wrong password",
+            vec![
+                "sign".into(),
+                arg("f.txt"),
+                "-s".into(),
+                arg("a.key"),
+                "-x".into(),
+                arg("x.pqsig"),
+                "--password-file".into(),
+                arg("wrong.txt"),
+            ],
+            2,
+        ),
+        (
+            "generate, key exists",
+            vec!["generate".into(), "-s".into(), arg("a.key"), "--password-file".into(), arg("wrong.txt")],
+            2,
+        ),
+        ("inspect, not a pqsign file", vec!["inspect".into(), arg("wrong.txt")], 2),
+        ("no subcommand", vec![], 2),
+    ];
+
+    for (label, args, expected) in cases {
+        let output = cmd().args(&args).output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{label}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn test_cli_inspect_reports_both_files_when_neither_is_pqsign() {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes.txt");
+    fs::write(&notes, b"hello").unwrap();
+
+    let notes = notes.to_str().unwrap();
+    cmd().args(["inspect", notes]).assert().code(2).stderr(predicates::str::contains(format!(
+        "{notes} is not a pqsign file, and {notes}.pqsig does not exist"
+    )));
+}

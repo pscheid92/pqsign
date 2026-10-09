@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process;
+use std::process::ExitCode;
 
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
@@ -8,10 +8,21 @@ use pqsign::domain::SignatureFormat;
 use pqsign::errors::Error;
 use pqsign::password::PasswordSource;
 
-fn main() {
-    if let Err(e) = Cli::parse().run() {
-        eprintln!("error: {e}");
-        process::exit(1);
+/// Exit status when a signature does not verify. Like minisign and gpgv, every other error exits with 2, as
+/// usage errors from clap already do, so scripts can tell a bad signature from a check that could not happen.
+const EXIT_NOT_VERIFIED: u8 = 1;
+const EXIT_ERROR: u8 = 2;
+
+const EXIT_STATUS_HELP: &str = "Exit status: 0 on success, 1 if a signature does not verify, 2 for any other error.";
+
+fn main() -> ExitCode {
+    match Cli::parse().run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            let code = if e.is_verification_failure() { EXIT_NOT_VERIFIED } else { EXIT_ERROR };
+            ExitCode::from(code)
+        }
     }
 }
 
@@ -99,7 +110,10 @@ enum Command {
     },
 
     /// Verify a signature
-    #[command(after_help = "Exits 0 if the signature is valid, 1 otherwise.")]
+    #[command(
+        after_help = "Exit status: 0 if the signature is valid, 1 if it does not verify (the file changed or another key \
+                            made it), 2 if it could not be checked (missing or malformed files)."
+    )]
     Verify {
         /// File to verify
         file: PathBuf,
@@ -142,7 +156,7 @@ enum Command {
 }
 
 #[derive(Parser)]
-#[command(name = "pqsign", version, about = "Hybrid post-quantum file signing (Ed25519 + ML-DSA-65)")]
+#[command(name = "pqsign", version, about = "Hybrid post-quantum file signing (Ed25519 + ML-DSA-65)", after_help = EXIT_STATUS_HELP)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
