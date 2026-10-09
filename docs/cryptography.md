@@ -189,7 +189,7 @@ Offset  Size  Field
 
 A v1 signature file has no suite and fingerprint: the Ed25519 signature follows the header directly. Nothing may follow the comment in a v2 file.
 
-Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes.
+Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes. The version in the prefix must match the format version byte in that header, which is authoritative; pqsign rejects public keys where the two differ.
 
 ## Implementation Status
 

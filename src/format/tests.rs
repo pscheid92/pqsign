@@ -722,3 +722,20 @@ fn test_escape_file_name_keeps_invalid_bytes_distinct() {
     assert_eq!(name(b"caf\\xe9.txt"), "caf\\\\xe9.txt");
     check_trusted_comment(&name(b"caf\xe9\t\x1b.txt")).unwrap();
 }
+
+// -- Public key text prefix and header version --
+
+/// The prefix and the header must agree. With only format v1 for keys this is also rejected by the header's own
+/// version check; the test keeps it rejected once a newer key format exists.
+#[test]
+fn test_public_key_text_and_header_versions_must_match() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let (_, pk) = KeyPair::new().into_parts();
+    let mut blob = super::public_key::encode(&pk).unwrap();
+    read_public_key_string(&format!("pqsign:v1:{}", STANDARD.encode(&blob))).unwrap();
+
+    blob[4] = 2;
+    let result = read_public_key_string(&format!("pqsign:v1:{}", STANDARD.encode(&blob)));
+    assert!(matches!(result, Err(Error::InvalidFormat(_))));
+}
