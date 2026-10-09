@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 use pqsign::commands::{generate, inspect, sign, verify};
 use pqsign::domain::KeyPair;
 use pqsign::format;
+use pqsign::password::PasswordSource;
 
 fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
@@ -14,7 +15,7 @@ fn pw(s: &str) -> Zeroizing<String> {
 fn keygen(secret_key: PathBuf, password: &str, overwrite: bool) -> Result<(), pqsign::errors::Error> {
     generate::run(generate::Options {
         secret_key: Some(secret_key),
-        password: Some(pw(password)),
+        password: PasswordSource::Given(pw(password)),
         overwrite,
     })
 }
@@ -25,7 +26,7 @@ fn sig(file: PathBuf, secret_key: PathBuf, sig_file: Option<PathBuf>, trusted_co
         secret_key: Some(secret_key),
         sig_file,
         trusted_comment,
-        password: Some(pw("test-pw")),
+        password: PasswordSource::Given(pw("test-pw")),
     })
 }
 

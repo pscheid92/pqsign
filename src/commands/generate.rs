@@ -1,16 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use zeroize::Zeroizing;
-
 use super::util::resolve_key_path;
 use crate::domain::KeyPair;
 use crate::errors::{Error, IoContext};
 use crate::format;
-use crate::password;
+use crate::password::PasswordSource;
 
 pub struct Options {
     pub secret_key: Option<PathBuf>,
-    pub password: Option<Zeroizing<String>>,
+    pub password: PasswordSource,
     pub overwrite: bool,
 }
 
@@ -27,10 +25,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         check_not_exists(&public_key_path)?;
     }
 
-    let password = match password {
-        Some(pw) => pw,
-        None => password::prompt_new_password()?,
-    };
+    let password = password.read_new()?;
 
     eprintln!("Generating key pair...");
     let keypair = KeyPair::new();

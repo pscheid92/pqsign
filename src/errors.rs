@@ -25,6 +25,15 @@ pub enum Error {
     #[error("passwords don't match")]
     PasswordMismatch,
 
+    #[error("password is too long (max {max} bytes)")]
+    PasswordTooLong { max: usize },
+
+    #[error("password is not valid UTF-8")]
+    PasswordNotUtf8,
+
+    #[error("cannot prompt for a password: {source}; use --password-stdin or --password-file when no terminal is available")]
+    PasswordPrompt { source: std::io::Error },
+
     #[error("key ID mismatch: signature has {sig_id}, public key has {pk_id}")]
     KeyIdMismatch { sig_id: KeyId, pk_id: KeyId },
 

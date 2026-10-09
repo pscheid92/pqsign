@@ -5,6 +5,7 @@ use tempfile::TempDir;
 use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, sign, verify};
+use pqsign::password::PasswordSource;
 
 fn password() -> Zeroizing<String> {
     Zeroizing::new("benchmark-password".to_string())
@@ -13,7 +14,7 @@ fn password() -> Zeroizing<String> {
 fn setup_keys(dir: &TempDir) {
     generate::run(generate::Options {
         secret_key: Some(dir.path().join("test.key")),
-        password: Some(password()),
+        password: PasswordSource::Given(password()),
         overwrite: true,
     })
     .unwrap();
@@ -33,7 +34,7 @@ fn bench_generate(c: &mut Criterion) {
         b.iter(|| {
             generate::run(generate::Options {
                 secret_key: Some(dir.path().join("bench.key")),
-                password: Some(password()),
+                password: PasswordSource::Given(password()),
                 overwrite: true,
             })
             .unwrap();
@@ -64,7 +65,7 @@ fn bench_sign(c: &mut Criterion) {
                     secret_key: Some(dir.path().join("test.key")),
                     sig_file: Some(dir.path().join("test.pqsig")),
                     trusted_comment: Some("benchmark".to_string()),
-                    password: Some(password()),
+                    password: PasswordSource::Given(password()),
                 })
                 .unwrap();
             });
@@ -95,7 +96,7 @@ fn bench_verify(c: &mut Criterion) {
             secret_key: Some(dir.path().join("test.key")),
             sig_file: Some(dir.path().join(format!("test_{size}.pqsig"))),
             trusted_comment: Some("benchmark".to_string()),
-            password: Some(password()),
+            password: PasswordSource::Given(password()),
         })
         .unwrap();
 
