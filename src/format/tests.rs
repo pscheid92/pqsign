@@ -483,3 +483,85 @@ fn test_readers_reject_large_files() {
     let secret_key = read_secret_key_with(&path, |_| panic!("password requested for a file that is not a key"));
     assert!(matches!(secret_key, Err(Error::InvalidFormat(_))));
 }
+
+// -- Trusted comment rules --
+
+#[test]
+fn test_trusted_comment_allowed_characters() {
+    check_trusted_comment("timestamp:1791562322\tfile:app.tar.gz\trelease v1.0 für März 🚀").unwrap();
+    check_trusted_comment("").unwrap();
+}
+
+#[test]
+fn test_trusted_comment_forbidden_characters() {
+    for bad in [
+        "\x1b[2K",
+        "a\rb",
+        "a\nb",
+        "\0",
+        "\x7f",
+        "\u{85}",
+        "\u{9b}31m",
+        "invoice\u{202e}fdp.exe",
+        "\u{202a}",
+        "\u{2066}x\u{2069}",
+    ] {
+        match check_trusted_comment(bad) {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains("forbidden character"), "got: {msg}"),
+            other => panic!("expected InvalidFormat for {bad:?}, got: {:?}", other.err().map(|e| e.to_string())),
+        }
+    }
+}
+
+#[test]
+fn test_escape_comment_field() {
+    assert_eq!(escape_comment_field("app.tar.gz"), "app.tar.gz");
+    assert_eq!(escape_comment_field("Bericht für März.pdf"), "Bericht für März.pdf");
+    assert_eq!(escape_comment_field("a\tfile:b"), "a\\tfile:b");
+    assert_eq!(escape_comment_field("line\nbreak"), "line\\nbreak");
+    assert_eq!(escape_comment_field("invoice\u{202e}fdp.exe"), "invoice\\u{202e}fdp.exe");
+    assert_eq!(escape_comment_field("back\\slash"), "back\\\\slash");
+    assert_eq!(escape_comment_field("\x1b[2K"), "\\u{1b}[2K");
+
+    for name in ["a\tb\nc\u{202e}d\x1b", "plain"] {
+        check_trusted_comment(&escape_comment_field(name)).unwrap();
+    }
+}
+
+#[test]
+fn test_write_signature_rejects_forbidden_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.txt");
+    std::fs::write(&file, b"test data").unwrap();
+
+    let (sk, _) = KeyPair::new().into_parts();
+    let sig = sk.sign(&file, "bad\x1b[2K").unwrap();
+
+    let err = write_signature(&dir.path().join("test.txt.pqsig"), &sig).unwrap_err();
+    assert!(matches!(err, Error::InvalidFormat(_)));
+}
+
+#[test]
+fn test_read_signature_rejects_forbidden_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.txt");
+    let sig_path = dir.path().join("test.txt.pqsig");
+    std::fs::write(&file, b"test data").unwrap();
+
+    let (sk, _) = KeyPair::new().into_parts();
+    write_signature(&sig_path, &sk.sign(&file, "abcd").unwrap()).unwrap();
+
+    // The comment is the last field; replace it in place with one of the same length.
+    let mut data = std::fs::read(&sig_path).unwrap();
+    let len = data.len();
+    data[len - 4..].copy_from_slice(b"a\x1b[K");
+    std::fs::write(&sig_path, &data).unwrap();
+
+    for result in [read_signature(&sig_path).map(|_| ()), inspect_file(&sig_path).map(|_| ())] {
+        match result {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains("forbidden character"), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(()) => panic!("expected error, got Ok"),
+        }
+    }
+}

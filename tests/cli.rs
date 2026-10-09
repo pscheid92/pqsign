@@ -655,3 +655,173 @@ fn test_cli_readers_stop_on_endless_input() {
         .failure()
         .stderr(predicates::str::contains("larger than 64 KiB"));
 }
+
+// -- trusted comment hygiene --
+
+fn trusted_comment_of(sig: &std::path::Path) -> String {
+    pqsign::format::read_signature(sig).unwrap().trusted_comment
+}
+
+#[test]
+fn test_cli_sign_records_file_name_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("sub").join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    // An absolute path as typed used to end up in the comment in full.
+    sign_file(&file, &sk, &sig);
+
+    let comment = trusted_comment_of(&sig);
+    assert!(comment.contains("\tfile:msg.txt"), "got: {comment:?}");
+    assert!(!comment.contains("sub"), "got: {comment:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_escapes_odd_file_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("a\tb\nc\u{202e}d.txt");
+    let sig = dir.path().join("odd.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    sign_file(&file, &sk, &sig);
+
+    assert!(
+        trusted_comment_of(&sig).ends_with("\tfile:a\\tb\\nc\\u{202e}d.txt"),
+        "got: {:?}",
+        trusted_comment_of(&sig)
+    );
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("file:a\\tb\\nc\\u{202e}d.txt"));
+}
+
+/// The password file does not exist: an error about it would mean the comment was checked too late.
+#[test]
+fn test_cli_sign_rejects_bad_comment_before_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    let long = "x".repeat(1100);
+    for (comment, expected) in [
+        ("release\x1b[2K", "forbidden character"),
+        ("a\u{202e}b", "forbidden character"),
+        (long.as_str(), "too long"),
+    ] {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-t",
+                comment,
+                "--password-file",
+                "/no/such/password",
+            ])
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(expected).and(predicates::str::contains("no such file").not()));
+    }
+}
+
+#[test]
+fn test_cli_sign_allows_tab_in_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+            "-t",
+            "version:1.2\tchannel:stable",
+            "--password-stdin",
+        ])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+
+    assert!(trusted_comment_of(&sig).ends_with("\tversion:1.2\tchannel:stable"));
+}
+
+#[test]
+fn test_cli_inspect_labels_comment_unverified() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    sign_file(&file, &sk, &sig);
+
+    cmd()
+        .args(["inspect", sig.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Comment (unverified): timestamp:").and(predicates::str::contains("Trusted comment").not()));
+}
+
+#[test]
+fn test_cli_rejects_signature_with_forbidden_comment() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+            "-t",
+            "abcd",
+            "--password-stdin",
+        ])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+    let mut data = fs::read(&sig).unwrap();
+    let len = data.len();
+    data[len - 4..].copy_from_slice(b"a\x1b[K");
+    fs::write(&sig, &data).unwrap();
+
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::contains("forbidden character (\\u{1b})"));
+    cmd()
+        .args(["inspect", sig.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::contains("forbidden character"));
+}

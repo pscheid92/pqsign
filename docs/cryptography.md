@@ -69,6 +69,12 @@ Note: Ed25519 context is prepended manually to the message rather than using RFC
 
 The trusted comment (timestamp, filename, user-provided text) is included in the Ed25519 signed message. Since ML-DSA-65 signs over the Ed25519 signature, the comment is transitively bound to both signatures. Modifying the comment invalidates the Ed25519 signature, which in turn invalidates the ML-DSA-65 signature.
 
+The comment is `timestamp:<unix time>\tfile:<file name>`, followed by a tab and the text given with `-t`. The file name is the base name only, so a signature does not reveal the directory it was signed in.
+
+A trusted comment is at most 1024 bytes and may not contain control characters other than tab, or Unicode bidirectional overrides and isolates. Such characters could move the cursor, erase or recolor terminal output, or make text read differently than it is: `invoice\u{202e}fdp.exe` displays as `invoiceexe.pdf`. `sign` refuses a `-t` text that breaks these rules before asking for the password, and escapes them in file names, for example as `\t` or `\u{202e}`. Signature files whose comment breaks them are rejected by `verify` and `inspect`, so a comment can never reach the terminal raw. Like minisign, pqsign rejects rather than escapes on read; the addition is the bidirectional characters.
+
+`inspect` does not check signatures, so it labels the comment as unverified. Only the comment printed by `verify` after a successful verification is trusted.
+
 ## Key Encryption
 
 Secret keys are always encrypted at rest.

@@ -25,13 +25,13 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let secret_key_path = resolve_key_path(secret_key, "default.key")?;
     let signature_path = resolve_signature_path(sig_file, &file)?;
 
-    // Validate input file before asking for the password
+    // Validate the input file and the comment before asking for the password
     std::fs::metadata(&file).io_context(&file)?;
+    let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
+    format::check_trusted_comment(&trusted)?;
     warn_if_accessible_by_others(&secret_key_path);
 
     let secret_key = format::read_secret_key_with(&secret_key_path, |_kdf| password.read_existing())?;
-
-    let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
     let signature = secret_key.sign(&file, &trusted)?;
 
     format::write_signature(&signature_path, &signature)?;
@@ -58,11 +58,16 @@ fn warn_if_accessible_by_others(secret_key_path: &Path) {
     let _ = secret_key_path;
 }
 
+/// `timestamp:<unix time>\tfile:<file name>`, then a tab and the user's comment if there is one. The file name
+/// is the base name only, so signatures do not reveal where the file was signed, and it is escaped so odd file
+/// names cannot break the comment's rules or add fields.
 fn build_trusted_comment(file: &Path, comment: Option<&str>) -> String {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let name = file.file_name().map_or_else(|| file.to_string_lossy(), |name| name.to_string_lossy());
+    let name = format::escape_comment_field(&name);
 
     match comment {
-        Some(c) => format!("timestamp:{ts}\tfile:{}\t{c}", file.display()),
-        None => format!("timestamp:{ts}\tfile:{}", file.display()),
+        Some(c) => format!("timestamp:{ts}\tfile:{name}\t{c}"),
+        None => format!("timestamp:{ts}\tfile:{name}"),
     }
 }
