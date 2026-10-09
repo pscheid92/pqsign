@@ -111,7 +111,9 @@ The key ID is duplicated inside the encrypted payload and in the plaintext heade
 - Passwords use `Zeroizing<String>` throughout the entire flow — zeroized on drop
 - The serialized secret key payload uses `Zeroizing<Vec<u8>>`
 - The decrypted plaintext uses `Zeroizing<Vec<u8>>`
-- Secret key files are written with Unix permissions `0600`
+- Secret key files are written with Unix permissions `0600`, also when `--overwrite` replaces an existing file, and directories pqsign creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
+- Key files are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key. `generate` places the public key first and the secret key last.
+- `sign` warns when the secret key file is accessible by other users.
 
 ## File Format
 

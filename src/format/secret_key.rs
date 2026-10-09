@@ -6,6 +6,7 @@ use fips204::traits::SerDes;
 use rand::Rng;
 use zeroize::Zeroizing;
 
+use super::file::{self, Access};
 use super::{FileHeader, FileType, crypto, kdf};
 use crate::domain::*;
 use crate::errors::{Error, IoContext};
@@ -13,17 +14,16 @@ use crate::format::kdf::Kdf;
 
 const ARGON2_SALT_LEN: usize = 16;
 const XCHACHA20_NONCE_LEN: usize = 24;
+const POLY1305_TAG_LEN: usize = 16;
 const PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65SecretKey::LEN + KeyId::LEN;
+const CIPHERTEXT_LEN: usize = PAYLOAD_LEN + POLY1305_TAG_LEN;
 
 // -- Public API --
 
+/// Writes an encrypted secret key atomically, readable by the owner only. An existing file is replaced.
 pub fn write(path: &Path, secret_key: &SecretKey, password: Zeroizing<String>) -> Result<(), Error> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).io_context(path)?;
-    }
-
-    let buf = encode(secret_key, &password)?;
-    write_secret_file(path, &buf)
+    let data = encode(secret_key, &password)?;
+    file::write(path, &data, Access::Private)
 }
 
 pub fn read(path: &Path, password: Zeroizing<String>) -> Result<SecretKey, Error> {
@@ -36,14 +36,14 @@ pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing
     let header = read_and_validate_header(&mut r)?;
 
     let kdf = kdf::read_from(&mut r)?;
-    let password = password_fn(&kdf)?;
-
     let salt: [u8; ARGON2_SALT_LEN] = super::read_exact_array(&mut r)?;
     let nonce: [u8; XCHACHA20_NONCE_LEN] = super::read_exact_array(&mut r)?;
-    let remaining = &data[r.position() as usize..];
+    let ciphertext = &data[r.position() as usize..];
+    check_ciphertext_len(ciphertext.len())?;
 
+    let password = password_fn(&kdf)?;
     let plaintext = Zeroizing::new(crypto::decrypt(
-        remaining,
+        ciphertext,
         password.as_bytes(),
         kdf.mem_limit(),
         kdf.ops_limit(),
@@ -69,9 +69,20 @@ fn read_and_validate_header(r: &mut impl std::io::Read) -> Result<FileHeader, Er
     Ok(header)
 }
 
+/// The encrypted payload has a fixed size, so a truncated or padded file is caught before asking for the
+/// password, instead of surfacing as a decryption failure that looks like a wrong password.
+fn check_ciphertext_len(len: usize) -> Result<(), Error> {
+    if len != CIPHERTEXT_LEN {
+        let msg = format!("secret key file is truncated or corrupt ({len} bytes of key data, expected {CIPHERTEXT_LEN})");
+        let err = Error::InvalidFormat(msg);
+        return Err(err);
+    }
+    Ok(())
+}
+
 // -- Write helpers --
 
-fn encode(secret_key: &SecretKey, password: &Zeroizing<String>) -> Result<Vec<u8>, Error> {
+pub(super) fn encode(secret_key: &SecretKey, password: &Zeroizing<String>) -> Result<Vec<u8>, Error> {
     let payload = serialize_payload(secret_key)?;
     let (kdf, salt, nonce, encrypted) = encrypt_payload(&payload, password)?;
 
@@ -108,27 +119,6 @@ fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>) -> Result<Encry
     let ct = crypto::encrypt(payload, password.as_bytes(), k.mem_limit(), k.ops_limit(), &salt, &nonce)?;
 
     Ok((k, salt, nonce, ct))
-}
-
-fn write_secret_file(path: &Path, data: &[u8]) -> Result<(), Error> {
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .io_context(path)?;
-        file.write_all(data).io_context(path)?;
-    }
-    #[cfg(not(unix))]
-    {
-        fs::write(path, data).io_context(path)?;
-    }
-    Ok(())
 }
 
 // -- Read helpers --
