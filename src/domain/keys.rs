@@ -7,6 +7,7 @@ use fips204::traits::{KeyGen, SerDes, Signer as MlDsaSigner};
 use rand::Rng;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
+use super::fingerprint::Fingerprint;
 use super::signature::Signature;
 use super::types::*;
 use super::{ED25519_CONTEXT, MLDSA65_CONTEXT, prehash_file};
@@ -22,12 +23,14 @@ impl KeyPair {
     const ED25519_SEED_LEN: usize = 32;
     const MLDSA65_SEED_LEN: usize = 32;
 
+    /// Generates a key pair. Its key ID is the start of its fingerprint, so a key with a chosen ID cannot be
+    /// made without about 2^64 attempts. Keys from pqsign 0.1 have random key IDs and keep working.
     pub fn new() -> Self {
         let mut rng = rand::rng();
-        let key_id = KeyId::random(&mut rng);
 
         let (ed25519_secret_key, ed25519_public_key) = Self::gen_ed25519_keys(&mut rng);
         let (mldsa65_secret_key, mldsa65_public_key) = Self::gen_mldsa65_keys(&mut rng);
+        let key_id = Fingerprint::of(&ed25519_public_key, &mldsa65_public_key).key_id();
 
         let secret_key = SecretKey {
             key_id,
@@ -124,6 +127,10 @@ pub struct PublicKey {
 impl PublicKey {
     pub fn key_id(&self) -> KeyId {
         self.key_id
+    }
+
+    pub fn fingerprint(&self) -> Fingerprint {
+        Fingerprint::of(&self.ed25519, &self.mldsa65)
     }
 
     pub fn from_parts(key_id: KeyId, ed25519: Ed25519PublicKey, mldsa65: MlDsa65PublicKey) -> Result<Self, Error> {

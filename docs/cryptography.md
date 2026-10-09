@@ -75,6 +75,18 @@ A trusted comment is at most 1024 bytes and may not contain control characters o
 
 `inspect` does not check signatures, so it labels the comment as unverified. Only the comment printed by `verify` after a successful verification is trusted.
 
+## Key IDs and Fingerprints
+
+Every key file and signature carries an 8-byte **key ID**, so a signature can be matched with the key that made it. Since pqsign 0.2, a new key's ID is the first 8 bytes of its fingerprint; keys generated with 0.1 have random IDs and keep working. A key ID locates a key but does not identify it: 64 bits are too few to rule out another key with the same ID, and in v1 signature files the key ID is not covered by the signatures.
+
+A key's **fingerprint** identifies it:
+
+```
+fingerprint = BLAKE2b-256("pqsign fingerprint: Ed25519 + ML-DSA-65" || ed25519_public_key || mldsa65_public_key)
+```
+
+Both public keys have a fixed length, so the concatenation is unambiguous. The key ID is not part of the input, so changing a file's key ID never changes its fingerprint. Fingerprints are shown as `BLAKE2b-256:` followed by unpadded base64, in the style of ssh's `SHA256:` fingerprints, by `generate`, by `inspect` on a public key, and by `verify`. `inspect` cannot show it for a secret key file, because the public key material there is encrypted.
+
 ## Key Encryption
 
 Secret keys are always encrypted at rest.

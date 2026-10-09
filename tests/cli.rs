@@ -825,3 +825,37 @@ fn test_cli_rejects_signature_with_forbidden_comment() {
         .stdout(predicates::str::is_empty())
         .stderr(predicates::str::contains("forbidden character"));
 }
+
+// -- fingerprints --
+
+#[test]
+fn test_cli_generate_inspect_and_verify_show_the_same_fingerprint() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+
+    generate_key(&sk);
+    let expected = format!("Fingerprint: {}", pqsign::format::read_public_key(&pk).unwrap().fingerprint());
+
+    cmd()
+        .args(["generate", "-s", dir.path().join("other.key").to_str().unwrap(), "--password-stdin"])
+        .write_stdin("pw\n")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("Fingerprint: BLAKE2b-256:"));
+    cmd()
+        .args(["inspect", pk.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(expected.as_str()));
+
+    sign_file(&file, &sk, &sig);
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(expected.as_str()));
+}

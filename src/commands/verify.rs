@@ -48,6 +48,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         println!("Signature: OK");
         println!("Trusted comment: {}", signature.trusted_comment);
         println!("Public key: {pk_source}");
+        println!("Fingerprint: {}", public_key.fingerprint());
     }
 
     Ok(())

@@ -1,7 +1,9 @@
+mod fingerprint;
 mod keys;
 pub mod signature;
 mod types;
 
+pub use fingerprint::Fingerprint;
 pub use keys::{KeyPair, PublicKey, SecretKey};
 pub use signature::Signature;
 pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Signature};
@@ -161,6 +163,37 @@ mod tests {
 
         let mut short = std::io::Cursor::new([7u8; Ed25519SecretKey::LEN - 1]);
         assert!(matches!(Ed25519SecretKey::read_from(&mut short), Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn test_fingerprint_ignores_key_id() {
+        let (_, mut pk) = KeyPair::new().into_parts();
+        let fingerprint = pk.fingerprint();
+        pk.key_id = KeyId([0xFF; KeyId::LEN]);
+        assert_eq!(pk.fingerprint(), fingerprint);
+    }
+
+    #[test]
+    fn test_fingerprints_differ_between_keys() {
+        let (_, pk1) = KeyPair::new().into_parts();
+        let (_, pk2) = KeyPair::new().into_parts();
+        assert_ne!(pk1.fingerprint(), pk2.fingerprint());
+    }
+
+    #[test]
+    fn test_new_key_id_is_fingerprint_prefix() {
+        let (sk, pk) = KeyPair::new().into_parts();
+        assert_eq!(pk.key_id(), pk.fingerprint().key_id());
+        assert_eq!(pk.key_id().as_bytes(), &pk.fingerprint().as_bytes()[..KeyId::LEN]);
+        assert_eq!(sk.key_id(), pk.key_id());
+    }
+
+    #[test]
+    fn test_fingerprint_display() {
+        let (_, pk) = KeyPair::new().into_parts();
+        let shown = pk.fingerprint().to_string();
+        assert!(shown.starts_with("BLAKE2b-256:"), "got: {shown}");
+        assert_eq!(shown.len(), "BLAKE2b-256:".len() + 43, "got: {shown}");
     }
 
     #[test]

@@ -20,7 +20,10 @@ fn test_inspect_text_public_key() {
     let info = format::inspect_file(&pk_path).unwrap();
 
     match &info {
-        FileInfo::PublicKey { key_id } => assert_eq!(*key_id, pk.key_id()),
+        FileInfo::PublicKey { key_id, fingerprint } => {
+            assert_eq!(*key_id, pk.key_id());
+            assert_eq!(*fingerprint, pk.fingerprint());
+        }
         other => panic!("expected PublicKey, got: {other}"),
     }
 
@@ -28,6 +31,7 @@ fn test_inspect_text_public_key() {
     assert!(output.contains("Public key"));
     assert!(output.contains("Ed25519 + ML-DSA-65"));
     assert!(output.contains(&pk.key_id().to_string()));
+    assert!(output.contains(&format!("Fingerprint: {}", pk.fingerprint())));
 }
 
 #[test]

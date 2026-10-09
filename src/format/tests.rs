@@ -426,24 +426,35 @@ fn test_read_public_key_text_on_secret_key_binary_fails() {
 #[test]
 fn test_inspect_binary_public_key_file() {
     use super::inspect::inspect_file;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("binary.pub");
+    let (_, pk) = KeyPair::new().into_parts();
+    std::fs::write(&path, super::public_key::encode(&pk).unwrap()).unwrap();
+
+    match inspect_file(&path).unwrap() {
+        super::inspect::FileInfo::PublicKey { key_id, fingerprint } => {
+            assert_eq!(key_id, pk.key_id());
+            assert_eq!(fingerprint, pk.fingerprint());
+        }
+        other => panic!("expected PublicKey, got: {other}"),
+    }
+}
+
+#[test]
+fn test_inspect_binary_public_key_header_only_fails() {
     use crate::domain::KeyId;
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("binary.pub");
-    let key_id = KeyId([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]);
-
     let mut buf = Vec::new();
-    FileHeader::new(FileType::PublicKey, key_id).write_to(&mut buf).unwrap();
+    FileHeader::new(FileType::PublicKey, KeyId([1, 2, 3, 4, 5, 6, 7, 8]))
+        .write_to(&mut buf)
+        .unwrap();
     buf.extend_from_slice(&[0u8; 64]);
     std::fs::write(&path, &buf).unwrap();
 
-    let info = inspect_file(&path).unwrap();
-    match info {
-        super::inspect::FileInfo::PublicKey { key_id: id } => {
-            assert_eq!(id, key_id);
-        }
-        other => panic!("expected PublicKey, got: {other}"),
-    }
+    assert!(matches!(inspect_file(&path), Err(Error::InvalidFormat(_))));
 }
 
 // -- Secret key: truncated or padded files --

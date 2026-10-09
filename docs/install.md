@@ -53,12 +53,18 @@ If you don't have the public key file, you can pass it inline:
 pqsign verify pqsign-x86_64-unknown-linux-gnu.tar.gz -P "$(cat release.key.pub)"
 ```
 
-### Public key
+### Check the release key
 
-The release signing key is committed to the repository at [`release.key.pub`](../release.key.pub):
+The release signing key is committed to the repository at [`release.key.pub`](../release.key.pub). Before trusting it, check its fingerprint:
+
+```bash
+pqsign inspect release.key.pub
+```
+
+The output must show exactly this fingerprint:
 
 ```
-pqsign:v1:UFFTTgEBcL3P/MFgZGvXTtr/ofiml6mDUNKM4VJQO...
+Fingerprint: BLAKE2b-256:tgolgaKRfSGSvflaZqCjVtX+YXy6I+/tgvAbOW/npIc
 ```
 
-The full key is too long to display inline (post-quantum keys are large by nature — the ML-DSA-65 public key alone is 1952 bytes). Use the file directly for verification.
+`verify` prints the fingerprint of the key it used, too. Compare the whole fingerprint rather than the key ID or the start of the key string: another key can carry the same key ID and share its first characters. pqsign 0.1 does not show fingerprints; compare the downloaded `release.key.pub` with the copy in this repository instead.
