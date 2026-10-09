@@ -25,7 +25,6 @@ thiserror = "2"
 zeroize = { version = "1.9.1", features = ["derive"] }
 rpassword = "7"
 clap_complete = "4.6.0"
-home = "0.5"
 tempfile = "3"
 
 [dev-dependencies]

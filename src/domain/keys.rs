@@ -18,7 +18,12 @@ pub struct KeyPair {
     pub public_key: PublicKey,
 }
 
-#[allow(clippy::new_without_default)]
+impl Default for KeyPair {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyPair {
     const ED25519_SEED_LEN: usize = 32;
     const MLDSA65_SEED_LEN: usize = 32;

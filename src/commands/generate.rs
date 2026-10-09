@@ -38,7 +38,8 @@ pub fn run(opts: Options) -> Result<(), Error> {
     eprintln!("Key ID:      {}", keypair.public_key.key_id());
     eprintln!("Fingerprint: {}", keypair.public_key.fingerprint());
     eprintln!();
-    eprint!("{pk_content}");
+    // The public key is what the command produces, so it goes to stdout; the status lines above go to stderr.
+    print!("{pk_content}");
 
     Ok(())
 }

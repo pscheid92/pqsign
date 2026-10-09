@@ -153,7 +153,8 @@ enum Command {
         shell: Shell,
     },
 
-    /// Print version information
+    /// Print version information (same as --version)
+    #[command(hide = true)]
     Version,
 }
 

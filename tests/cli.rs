@@ -36,6 +36,12 @@ fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path
 #[test]
 fn test_cli_version_subcommand() {
     cmd().arg("version").assert().success().stdout(predicates::str::contains("pqsign "));
+    cmd().arg("--version").assert().success().stdout(predicates::str::contains("pqsign "));
+    cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Print version information").not());
 }
 
 // -- generate subcommand --
@@ -45,15 +51,17 @@ fn test_cli_generate() {
     let dir = tempfile::tempdir().unwrap();
     let sk = dir.path().join("test.key");
 
-    cmd()
+    let assert = cmd()
         .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
         .write_stdin("mypass\n")
         .assert()
         .success()
-        .stderr(predicates::str::contains("Key ID:"));
+        .stderr(predicates::str::contains("Key ID:").and(predicates::str::contains("pqsign:v1:").not()));
 
+    // The public key is the command's output, on stdout, exactly as written to the .pub file.
+    let public_key = fs::read_to_string(dir.path().join("test.key.pub")).unwrap();
+    assert_eq!(String::from_utf8_lossy(&assert.get_output().stdout), public_key);
     assert!(sk.exists());
-    assert!(dir.path().join("test.key.pub").exists());
 }
 
 #[test]
