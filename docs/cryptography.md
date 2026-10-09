@@ -189,6 +189,20 @@ Offset  Size  Field
 
 A v1 signature file has no suite and fingerprint: the Ed25519 signature follows the header directly. Nothing may follow the comment in a v2 file.
 
+A secret key file continues with:
+
+```
+Offset  Size  Field
+14      1     KDF: 0x02 = Argon2id
+15      8     Argon2id memory in bytes (u64, little-endian)
+23      8     Argon2id iterations (u64, little-endian)
+31      16    Argon2id salt
+47      24    XChaCha20-Poly1305 nonce
+71      4088  Encrypted payload and Poly1305 tag
+```
+
+The KDF byte follows libsodium's numbering, in which 0x01 is Argon2i and 0x02 is Argon2id. pqsign only uses Argon2id and rejects every other value, 0x01 included. A secret key file is 4159 bytes.
+
 Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes. The version in the prefix must match the format version byte in that header, which is authoritative; pqsign rejects public keys where the two differ.
 
 ## Implementation Status

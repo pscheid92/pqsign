@@ -383,17 +383,20 @@ fn test_header_truncated_after_magic() {
 
 // -- KDF unknown algorithm --
 
+/// Only 0x02, Argon2id, is defined. 0x01 is Argon2i in libsodium's numbering and stays unused.
 #[test]
 fn test_kdf_unknown_algorithm() {
-    let mut data = vec![0xFF];
-    data.extend_from_slice(&0u64.to_le_bytes());
-    data.extend_from_slice(&0u64.to_le_bytes());
-    let mut r = Cursor::new(data.as_slice());
+    for byte in [0x00, 0x01, 0xFF] {
+        let mut data = vec![byte];
+        data.extend_from_slice(&(256u64 * 1024 * 1024).to_le_bytes());
+        data.extend_from_slice(&3u64.to_le_bytes());
+        let mut r = Cursor::new(data.as_slice());
 
-    let err = super::kdf::read_from(&mut r).unwrap_err();
-    match err {
-        Error::InvalidFormat(msg) => assert!(msg.contains("unknown KDF"), "got: {msg}"),
-        other => panic!("expected InvalidFormat, got: {other}"),
+        let err = super::kdf::read_from(&mut r).unwrap_err();
+        match err {
+            Error::InvalidFormat(msg) => assert!(msg.contains(&format!("unknown KDF algorithm: 0x{byte:02x}")), "got: {msg}"),
+            other => panic!("expected InvalidFormat, got: {other}"),
+        }
     }
 }
 
