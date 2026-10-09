@@ -175,13 +175,19 @@ fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
 }
 
+/// Small Argon2id parameters, so tests do not spend their time deriving keys. `generate` always uses the defaults.
+const TEST_KDF: Kdf = Kdf::Argon2id {
+    mem_limit: 64 * 1024,
+    ops_limit: 1,
+};
+
 #[test]
 fn test_secret_key_roundtrip_with_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("test-password")).unwrap();
+    write_secret_key(&path, &sk, pw("test-password"), &TEST_KDF).unwrap();
     let sk2 = read_secret_key(&path, pw("test-password")).unwrap();
 
     assert_eq!(sk.key_id, sk2.key_id);
@@ -195,8 +201,52 @@ fn test_secret_key_wrong_password() {
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("correct")).unwrap();
+    write_secret_key(&path, &sk, pw("correct"), &TEST_KDF).unwrap();
     assert!(matches!(read_secret_key(&path, pw("wrong")), Err(Error::WrongPassword)));
+}
+
+#[test]
+fn test_secret_key_records_its_kdf_parameters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let (sk, _) = KeyPair::new().into_parts();
+
+    let kdf = Kdf::Argon2id {
+        mem_limit: 128 * 1024,
+        ops_limit: 2,
+    };
+    write_secret_key(&path, &sk, pw("test"), &kdf).unwrap();
+
+    let mut recorded = None;
+    read_secret_key_with(&path, |kdf| {
+        recorded = Some(*kdf);
+        Ok(pw("test"))
+    })
+    .unwrap();
+    assert_eq!(recorded, Some(kdf));
+}
+
+/// pqsign never writes a key it would refuse to read.
+#[test]
+fn test_secret_key_write_rejects_invalid_kdf_parameters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let (sk, _) = KeyPair::new().into_parts();
+
+    let cases = [
+        (2048 * 1024 * 1024, 3, "asks for 2048 MiB of Argon2id memory"),
+        (64 * 1024, 17, "asks for 17 Argon2id iterations"),
+        (64 * 1024, 0, "invalid Argon2id parameters"),
+    ];
+    for (mem_limit, ops_limit, expected) in cases {
+        let kdf = Kdf::Argon2id { mem_limit, ops_limit };
+        match write_secret_key(&path, &sk, pw("test"), &kdf) {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains(expected), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(()) => panic!("expected an error for {kdf:?}"),
+        }
+        assert!(!path.exists());
+    }
 }
 
 #[test]
@@ -205,7 +255,7 @@ fn test_secret_key_is_raw_binary() {
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("test")).unwrap();
+    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
     let data = std::fs::read(&path).unwrap();
 
     assert_eq!(&data[0..4], b"PQSN");
@@ -333,17 +383,20 @@ fn test_header_truncated_after_magic() {
 
 // -- KDF unknown algorithm --
 
+/// Only 0x02, Argon2id, is defined. 0x01 is Argon2i in libsodium's numbering and stays unused.
 #[test]
 fn test_kdf_unknown_algorithm() {
-    let mut data = vec![0xFF];
-    data.extend_from_slice(&0u64.to_le_bytes());
-    data.extend_from_slice(&0u64.to_le_bytes());
-    let mut r = Cursor::new(data.as_slice());
+    for byte in [0x00, 0x01, 0xFF] {
+        let mut data = vec![byte];
+        data.extend_from_slice(&(256u64 * 1024 * 1024).to_le_bytes());
+        data.extend_from_slice(&3u64.to_le_bytes());
+        let mut r = Cursor::new(data.as_slice());
 
-    let err = super::kdf::read_from(&mut r).unwrap_err();
-    match err {
-        Error::InvalidFormat(msg) => assert!(msg.contains("unknown KDF"), "got: {msg}"),
-        other => panic!("expected InvalidFormat, got: {other}"),
+        let err = super::kdf::read_from(&mut r).unwrap_err();
+        match err {
+            Error::InvalidFormat(msg) => assert!(msg.contains(&format!("unknown KDF algorithm: 0x{byte:02x}")), "got: {msg}"),
+            other => panic!("expected InvalidFormat, got: {other}"),
+        }
     }
 }
 
@@ -406,7 +459,7 @@ fn test_read_signature_on_secret_key_file_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test")).unwrap();
+    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
 
     assert!(matches!(read_signature(&sk_path), Err(Error::InvalidFormat(_))));
 }
@@ -416,7 +469,7 @@ fn test_read_public_key_text_on_secret_key_binary_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test")).unwrap();
+    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
 
     assert!(read_public_key(&sk_path).is_err());
 }
@@ -464,7 +517,7 @@ fn test_secret_key_wrong_length_detected_before_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&path, &sk, pw("test")).unwrap();
+    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
     let data = std::fs::read(&path).unwrap();
 
     let truncated = &data[..512];
@@ -721,4 +774,21 @@ fn test_escape_file_name_keeps_invalid_bytes_distinct() {
     // A literal backslash is doubled, so it can never look like an escaped byte.
     assert_eq!(name(b"caf\\xe9.txt"), "caf\\\\xe9.txt");
     check_trusted_comment(&name(b"caf\xe9\t\x1b.txt")).unwrap();
+}
+
+// -- Public key text prefix and header version --
+
+/// The prefix and the header must agree. With only format v1 for keys this is also rejected by the header's own
+/// version check; the test keeps it rejected once a newer key format exists.
+#[test]
+fn test_public_key_text_and_header_versions_must_match() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let (_, pk) = KeyPair::new().into_parts();
+    let mut blob = super::public_key::encode(&pk).unwrap();
+    read_public_key_string(&format!("pqsign:v1:{}", STANDARD.encode(&blob))).unwrap();
+
+    blob[4] = 2;
+    let result = read_public_key_string(&format!("pqsign:v1:{}", STANDARD.encode(&blob)));
+    assert!(matches!(result, Err(Error::InvalidFormat(_))));
 }

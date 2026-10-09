@@ -20,8 +20,9 @@ const CIPHERTEXT_LEN: usize = PAYLOAD_LEN + POLY1305_TAG_LEN;
 // -- Public API --
 
 /// Writes an encrypted secret key atomically, readable by the owner only. An existing file is replaced.
-pub fn write(path: &Path, secret_key: &SecretKey, password: Zeroizing<String>) -> Result<(), Error> {
-    let data = encode(secret_key, &password)?;
+/// `generate` uses [`Kdf::argon2id`]; tests pass small parameters so they do not spend their time in Argon2id.
+pub fn write(path: &Path, secret_key: &SecretKey, password: Zeroizing<String>, kdf: &Kdf) -> Result<(), Error> {
+    let data = encode(secret_key, &password, kdf)?;
     file::write(path, &data, Access::Private)
 }
 
@@ -81,13 +82,15 @@ fn check_ciphertext_len(len: usize) -> Result<(), Error> {
 
 // -- Write helpers --
 
-pub(super) fn encode(secret_key: &SecretKey, password: &Zeroizing<String>) -> Result<Vec<u8>, Error> {
+/// The parameters are checked like those read from a key file, so pqsign never writes a key it would refuse to read.
+pub(super) fn encode(secret_key: &SecretKey, password: &Zeroizing<String>, kdf: &Kdf) -> Result<Vec<u8>, Error> {
+    kdf.check()?;
     let payload = serialize_payload(secret_key)?;
-    let (kdf, salt, nonce, encrypted) = encrypt_payload(&payload, password)?;
+    let (salt, nonce, encrypted) = encrypt_payload(&payload, password, kdf)?;
 
     let mut buf = Vec::new();
     FileHeader::new(FileType::SecretKey, secret_key.key_id).write_to(&mut buf)?;
-    kdf::write_to(&kdf, &mut buf)?;
+    kdf::write_to(kdf, &mut buf)?;
     super::write_all(&mut buf, &salt)?;
     super::write_all(&mut buf, &nonce)?;
     super::write_all(&mut buf, &encrypted)?;
@@ -105,9 +108,9 @@ fn serialize_payload(secret_key: &SecretKey) -> Result<Zeroizing<Vec<u8>>, Error
     Ok(buf)
 }
 
-type EncryptedPayload = (Kdf, [u8; ARGON2_SALT_LEN], [u8; XCHACHA20_NONCE_LEN], Vec<u8>);
+type EncryptedPayload = ([u8; ARGON2_SALT_LEN], [u8; XCHACHA20_NONCE_LEN], Vec<u8>);
 
-fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>) -> Result<EncryptedPayload, Error> {
+fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>, kdf: &Kdf) -> Result<EncryptedPayload, Error> {
     let mut rng = rand::rng();
 
     let mut salt = [0u8; ARGON2_SALT_LEN];
@@ -116,10 +119,9 @@ fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>) -> Result<Encry
     let mut nonce = [0u8; XCHACHA20_NONCE_LEN];
     rng.fill_bytes(&mut nonce);
 
-    let k = Kdf::argon2id();
-    let ct = crypto::encrypt(payload, password.as_bytes(), k.mem_limit(), k.ops_limit(), &salt, &nonce)?;
+    let ct = crypto::encrypt(payload, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), &salt, &nonce)?;
 
-    Ok((k, salt, nonce, ct))
+    Ok((salt, nonce, ct))
 }
 
 // -- Read helpers --

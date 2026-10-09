@@ -18,12 +18,18 @@ Releases are built, signed and published by the [release workflow](../.github/wo
 Each step only runs if the previous one succeeded:
 
 1. Checks that the tag matches the version in `Cargo.toml`.
-2. Runs the full CI suite: tests on Linux, macOS and Windows, clippy, rustfmt and actionlint.
-3. Builds the five release targets with `--locked`.
+2. Runs the full CI suite: tests on Linux, macOS and Windows, tests with the minimum supported Rust version, clippy, rustfmt, actionlint, and `cargo audit` for dependencies with known vulnerabilities.
+3. Builds the five release targets with `--locked` and the exact Rust version set in the workflow.
 4. Signs every archive twice: `.pqsig` in the current format, and `.v1.pqsig` for pqsign 0.1, which cannot read format v2.
 5. Verifies every signature against the committed `release.key.pub`. A release secret that does not match the committed key fails here.
-6. Creates the GitHub release with the archives and signatures.
+6. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives and signatures. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.
 7. Publishes the crate to crates.io, last, because a published version can never be replaced.
+
+A failing audit blocks the release. CI also runs every Monday, so a new advisory usually shows up before release day. Update the affected dependency, or, if the advisory does not affect pqsign, add its ID to `ignore` under `[advisories]` in `.cargo/audit.toml` with a comment saying why.
+
+## Rust version
+
+Release binaries are built with the Rust version in the build job of `release.yml`, not with whatever is stable on release day. Dependabot does not raise it. Before a release, raise it to the current stable in its own commit if it is behind, and let the dry run on that pull request build with it.
 
 ## Dry runs
 

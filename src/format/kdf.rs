@@ -13,7 +13,7 @@ const MAX_OPS_LIMIT: u64 = 16;
 
 const MIB: u64 = 1024 * 1024;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kdf {
     Argon2id { mem_limit: u64, ops_limit: u64 },
 }
@@ -38,8 +38,9 @@ impl Kdf {
         }
     }
 
-    /// Checks parameters read from a key file before any work is done with them.
-    fn check(&self) -> Result<(), Error> {
+    /// Checks parameters before any work is done with them: those read from a key file, and those a key is
+    /// about to be written with.
+    pub(super) fn check(&self) -> Result<(), Error> {
         let Kdf::Argon2id { mem_limit, ops_limit } = *self;
 
         if mem_limit > MAX_MEM_LIMIT {
@@ -71,7 +72,7 @@ impl Kdf {
 }
 
 /// In MiB when whole, else in KiB or bytes, so a value just over a limit is not rounded down onto it.
-fn exact_size(bytes: u64) -> String {
+pub(super) fn exact_size(bytes: u64) -> String {
     if bytes.is_multiple_of(MIB) {
         format!("{} MiB", bytes / MIB)
     } else if bytes.is_multiple_of(1024) {

@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, sign, verify};
 use pqsign::domain::SignatureFormat;
+use pqsign::format::Kdf;
 use pqsign::password::PasswordSource;
 
 fn password() -> Zeroizing<String> {
@@ -17,6 +18,7 @@ fn setup_keys(dir: &TempDir) {
         secret_key: Some(dir.path().join("test.key")),
         password: PasswordSource::Given(password()),
         overwrite: true,
+        kdf: Kdf::argon2id(),
     })
     .unwrap();
 }
@@ -37,6 +39,7 @@ fn bench_generate(c: &mut Criterion) {
                 secret_key: Some(dir.path().join("bench.key")),
                 password: PasswordSource::Given(password()),
                 overwrite: true,
+                kdf: Kdf::argon2id(),
             })
             .unwrap();
         });

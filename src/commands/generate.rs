@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use super::util::{resolve_key_path, with_suffix};
 use crate::domain::KeyPair;
 use crate::errors::Error;
-use crate::format;
+use crate::format::{self, Kdf};
 use crate::password::PasswordSource;
 
 pub struct Options {
     pub secret_key: Option<PathBuf>,
     pub password: PasswordSource,
     pub overwrite: bool,
+    /// The command line always passes [`Kdf::argon2id`]; tests pass small parameters.
+    pub kdf: Kdf,
 }
 
 pub fn run(opts: Options) -> Result<(), Error> {
@@ -17,6 +19,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         secret_key,
         password,
         overwrite,
+        kdf,
     } = opts;
     let (secret_key_path, public_key_path) = resolve_paths(secret_key)?;
 
@@ -29,7 +32,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
     eprintln!("Generating key pair...");
     let keypair = KeyPair::new();
-    format::write_key_pair(&secret_key_path, &public_key_path, &keypair, password, overwrite)?;
+    format::write_key_pair(&secret_key_path, &public_key_path, &keypair, password, overwrite, &kdf)?;
 
     let pk_content = format::encode_public_key(&keypair.public_key)?;
 
@@ -38,7 +41,8 @@ pub fn run(opts: Options) -> Result<(), Error> {
     eprintln!("Key ID:      {}", keypair.public_key.key_id());
     eprintln!("Fingerprint: {}", keypair.public_key.fingerprint());
     eprintln!();
-    eprint!("{pk_content}");
+    // The public key is what the command produces, so it goes to stdout; the status lines above go to stderr.
+    print!("{pk_content}");
 
     Ok(())
 }

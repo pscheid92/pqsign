@@ -14,7 +14,7 @@ pub fn validate_file_path(path: &Path) -> Result<(), Error> {
 }
 
 pub fn default_key_dir() -> Result<PathBuf, Error> {
-    let home = home::home_dir().ok_or(Error::HomeDirNotFound)?;
+    let home = std::env::home_dir().ok_or(Error::HomeDirNotFound)?;
     Ok(home.join(".pqsign"))
 }
 
@@ -43,7 +43,7 @@ pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 
 fn expand_tilde(path: PathBuf) -> PathBuf {
     if let Ok(rest) = path.strip_prefix("~")
-        && let Some(home) = home::home_dir()
+        && let Some(home) = std::env::home_dir()
     {
         return home.join(rest);
     }
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_resolve_key_path_default_uses_home_dir() {
         let path = resolve_key_path(None, "default.key").unwrap();
-        let expected = home::home_dir().unwrap().join(".pqsign").join("default.key");
+        let expected = std::env::home_dir().unwrap().join(".pqsign").join("default.key");
         assert_eq!(path, expected);
     }
 
@@ -110,14 +110,14 @@ mod tests {
     #[test]
     fn test_expand_tilde_in_key_path() {
         let path = resolve_key_path(Some(PathBuf::from("~/.pqsign/my.key")), "default.key").unwrap();
-        let expected = home::home_dir().unwrap().join(".pqsign/my.key");
+        let expected = std::env::home_dir().unwrap().join(".pqsign/my.key");
         assert_eq!(path, expected);
     }
 
     #[test]
     fn test_expand_tilde_in_signature_path() {
         let path = resolve_signature_path(Some(PathBuf::from("~/sigs/my.pqsig")), Path::new("data.txt")).unwrap();
-        let expected = home::home_dir().unwrap().join("sigs/my.pqsig");
+        let expected = std::env::home_dir().unwrap().join("sigs/my.pqsig");
         assert_eq!(path, expected);
     }
 

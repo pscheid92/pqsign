@@ -9,6 +9,9 @@ use super::{FileHeader, FileType};
 use crate::domain::*;
 use crate::errors::Error;
 
+/// The text form names the public key format version, which must match the version byte in the binary header.
+/// The header is authoritative; the prefix only lets a reader reject a newer format before decoding it.
+const TEXT_VERSION: u8 = 1;
 const TEXT_PREFIX: &str = "pqsign:v1:";
 
 pub(super) fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
@@ -55,7 +58,21 @@ pub fn read_from_string(content: &str) -> Result<PublicKey, Error> {
     let line = content.trim_end();
     let encoded = strip_prefix(line)?;
     let blob = STANDARD.decode(encoded)?;
+    check_text_version(&blob)?;
     decode(&blob)
+}
+
+fn check_text_version(blob: &[u8]) -> Result<(), Error> {
+    let header = FileHeader::read(&mut Cursor::new(blob))?;
+    if header.version != TEXT_VERSION {
+        let msg = format!(
+            "public key text says format v{TEXT_VERSION}, but its content is format v{}",
+            header.version
+        );
+        let err = Error::InvalidFormat(msg);
+        return Err(err);
+    }
+    Ok(())
 }
 
 fn strip_prefix(line: &str) -> Result<&str, Error> {

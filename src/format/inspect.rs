@@ -58,7 +58,7 @@ impl fmt::Display for FileInfo {
                 match kdf {
                     Kdf::Argon2id { mem_limit, ops_limit } => {
                         writeln!(f, "KDF:         Argon2id")?;
-                        writeln!(f, "Memory:      {} MiB", mem_limit / (1024 * 1024))?;
+                        writeln!(f, "Memory:      {}", kdf::exact_size(*mem_limit))?;
                         write!(f, "Ops:         {ops_limit}")
                     }
                 }

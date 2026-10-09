@@ -12,7 +12,7 @@ Report vulnerabilities privately through GitHub: on the repository's **Security*
 
 Useful details are:
 
-- the pqsign version (`pqsign version`) and platform
+- the pqsign version (`pqsign --version`) and platform
 - what an attacker can achieve, and under which assumptions
 - the steps or files that reproduce it
 - a proposed fix, if you have one

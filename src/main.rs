@@ -8,6 +8,7 @@ use clap_complete::Shell;
 use pqsign::commands::{generate, inspect, sign, verify};
 use pqsign::domain::SignatureFormat;
 use pqsign::errors::Error;
+use pqsign::format::Kdf;
 use pqsign::password::PasswordSource;
 
 /// Exit status when a signature does not verify. Like minisign and gpgv, every other error exits with 2, as
@@ -153,7 +154,8 @@ enum Command {
         shell: Shell,
     },
 
-    /// Print version information
+    /// Print version information (same as --version)
+    #[command(hide = true)]
     Version,
 }
 
@@ -175,6 +177,7 @@ impl Cli {
                 secret_key,
                 password: password.into(),
                 overwrite,
+                kdf: Kdf::argon2id(),
             }),
 
             Command::Sign {

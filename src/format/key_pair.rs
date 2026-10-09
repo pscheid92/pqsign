@@ -4,6 +4,7 @@ use std::path::Path;
 use zeroize::Zeroizing;
 
 use super::file::{self, Access, Staged};
+use super::kdf::Kdf;
 use super::{public_key, secret_key};
 use crate::domain::KeyPair;
 use crate::errors::Error;
@@ -14,8 +15,15 @@ use crate::errors::Error;
 /// renamed into place first and the secret key last: if the final rename fails, the old secret key survives.
 /// Without `overwrite`, existing files are never replaced, and a public key written by this call is removed
 /// again when the secret key cannot be placed.
-pub fn write_key_pair(secret_path: &Path, public_path: &Path, keypair: &KeyPair, password: Zeroizing<String>, overwrite: bool) -> Result<(), Error> {
-    let secret_data = secret_key::encode(&keypair.secret_key, &password)?;
+pub fn write_key_pair(
+    secret_path: &Path,
+    public_path: &Path,
+    keypair: &KeyPair,
+    password: Zeroizing<String>,
+    overwrite: bool,
+    kdf: &Kdf,
+) -> Result<(), Error> {
+    let secret_data = secret_key::encode(&keypair.secret_key, &password, kdf)?;
     let public_text = public_key::encode_text(&keypair.public_key)?;
 
     let secret = Staged::new(secret_path, &secret_data, Access::Private)?;

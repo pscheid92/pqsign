@@ -25,13 +25,23 @@ thiserror = "2"
 zeroize = { version = "1.9.1", features = ["derive"] }
 rpassword = "7"
 clap_complete = "4.6.0"
-home = "0.5"
 tempfile = "3"
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
 criterion = "0.8"
 predicates = "3.1.4"
+
+# Unoptimized, Argon2id at the default 256 MiB takes about 5 s instead of 0.4 s. Tests that run `generate` keep the
+# defaults, and debug builds are what people try out.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+# panic stays "unwind": secret key material is wiped in Drop, which panic = "abort" would skip.
 
 [[bench]]
 name = "crypto"

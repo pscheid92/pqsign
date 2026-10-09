@@ -10,6 +10,9 @@ on:
     secrets:
       DOCKERHUB_TOKEN:
         required: false
+  # Weekly, so a new advisory against a dependency or a Rust release that breaks the build shows up without a push.
+  schedule:
+    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
@@ -32,6 +35,37 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked
+
+  # Tests with the oldest Rust that rust-version in Cargo.toml promises, read from there so the two cannot drift apart.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "::error file=Cargo.toml::no rust-version found"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --locked
+
+  # Fails on any dependency in Cargo.lock with a known vulnerability in the RustSec advisory database.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The pinned action installs the cargo-audit release it lists, checked against its recorded checksum.
+      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: cargo-audit
+      - run: cargo audit
 
   clippy:
     runs-on: ubuntu-latest

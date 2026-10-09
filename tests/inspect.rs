@@ -4,11 +4,17 @@ use zeroize::Zeroizing;
 
 use pqsign::domain::KeyPair;
 use pqsign::format;
-use pqsign::format::FileInfo;
+use pqsign::format::{FileInfo, Kdf};
 
 fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
 }
+
+/// Small Argon2id parameters, so tests do not spend their time deriving keys. `generate` always uses the defaults.
+const TEST_KDF: Kdf = Kdf::Argon2id {
+    mem_limit: 64 * 1024,
+    ops_limit: 1,
+};
 
 #[test]
 fn test_inspect_text_public_key() {
@@ -40,7 +46,7 @@ fn test_inspect_encrypted_secret_key() {
     let sk_path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    format::write_secret_key(&sk_path, &sk, pw("pass")).unwrap();
+    format::write_secret_key(&sk_path, &sk, pw("pass"), &TEST_KDF).unwrap();
     let info = format::inspect_file(&sk_path).unwrap();
 
     match &info {
@@ -53,8 +59,8 @@ fn test_inspect_encrypted_secret_key() {
     let output = format!("{info}");
     assert!(output.contains("encrypted"));
     assert!(output.contains("Argon2id"));
-    assert!(output.contains("MiB"));
-    assert!(output.contains("Ops:"));
+    assert!(output.contains("Memory:      64 KiB"), "got: {output}");
+    assert!(output.contains("Ops:         1"), "got: {output}");
 }
 
 #[test]
