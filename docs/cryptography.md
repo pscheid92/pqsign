@@ -120,6 +120,8 @@ Password-based key derivation uses Argon2id (RFC 9106) with:
 
 Argon2id was chosen over scrypt or bcrypt for its resistance to both time-memory tradeoff attacks (Argon2d property) and side-channel attacks (Argon2i property).
 
+The parameters are stored in the key file. When reading it, pqsign checks them before asking for the password: at most 1 GiB of memory and 16 iterations, memory in whole KiB, and nothing Argon2id itself rejects. The upper limits keep a corrupt or tampered file from tying pqsign up for hours or exhausting memory; they cover libsodium's SENSITIVE preset (1 GiB, 4 iterations). Tampering cannot weaken a key: different parameters derive a different key, and decryption fails.
+
 ### Encryption: XChaCha20-Poly1305
 
 The derived 256-bit key encrypts the secret key material using XChaCha20-Poly1305 (AEAD) with:

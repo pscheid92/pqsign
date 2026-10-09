@@ -31,11 +31,16 @@ fn parse_nonce(nonce: &[u8]) -> Result<XNonce, Error> {
     XNonce::try_from(nonce).map_err(|e| Error::Crypto(format!("nonce: {e}")))
 }
 
-fn derive_key(mem_limit: u64, ops_limit: u64, password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; ENCRYPTION_KEY_LEN]>, Error> {
-    let m_cost = (mem_limit / 1024) as u32;
-    let t_cost = ops_limit as u32;
+/// Argon2id parameters for a memory limit in bytes and an iteration count. Values that do not fit Argon2id's
+/// 32-bit fields are an error rather than silently truncated.
+pub(super) fn argon2_params(mem_limit: u64, ops_limit: u64) -> Result<Params, String> {
+    let m_cost = u32::try_from(mem_limit / 1024).map_err(|_| format!("a memory limit of {mem_limit} bytes is too large"))?;
+    let t_cost = u32::try_from(ops_limit).map_err(|_| format!("{ops_limit} iterations are too many"))?;
+    Params::new(m_cost, t_cost, 1, Some(ENCRYPTION_KEY_LEN)).map_err(|e| e.to_string())
+}
 
-    let params = Params::new(m_cost, t_cost, 1, Some(ENCRYPTION_KEY_LEN)).map_err(|e| Error::Crypto(format!("argon2 params: {e}")))?;
+fn derive_key(mem_limit: u64, ops_limit: u64, password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; ENCRYPTION_KEY_LEN]>, Error> {
+    let params = argon2_params(mem_limit, ops_limit).map_err(|e| Error::Crypto(format!("argon2 params: {e}")))?;
     let mut memory = argon2_memory(params.block_count())?;
 
     let mut key = Zeroizing::new([0u8; ENCRYPTION_KEY_LEN]);

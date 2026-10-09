@@ -949,3 +949,57 @@ fn test_cli_sign_rejects_unknown_format() {
         .failure()
         .stderr(predicates::str::contains("invalid value 'v3'"));
 }
+
+// -- KDF parameters read from key files --
+
+/// Overwrites the Argon2id parameters stored in a secret key file: memory limit and iteration count as u64 LE
+/// after the 14-byte header and the 1-byte algorithm ID.
+fn patch_kdf(sk: &std::path::Path, mem_limit: Option<u64>, ops_limit: Option<u64>) {
+    let mut data = fs::read(sk).unwrap();
+    if let Some(mem) = mem_limit {
+        data[15..23].copy_from_slice(&mem.to_le_bytes());
+    }
+    if let Some(ops) = ops_limit {
+        data[23..31].copy_from_slice(&ops.to_le_bytes());
+    }
+    fs::write(sk, data).unwrap();
+}
+
+/// The password file does not exist: an error about it would mean the parameters were checked too late.
+#[test]
+fn test_cli_rejects_excessive_kdf_parameters_before_the_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+
+    let cases = [
+        (None, Some(1_000_000), "asks for 1000000 Argon2id iterations; pqsign accepts at most 16"),
+        (Some((1u64 << 42) + 256 * 1024 * 1024), None, "asks for 4194560 MiB of Argon2id memory"),
+        (None, Some(0), "invalid Argon2id parameters"),
+    ];
+    for (i, (mem, ops, expected)) in cases.into_iter().enumerate() {
+        let sk = dir.path().join(format!("key{i}.key"));
+        generate_key(&sk);
+        patch_kdf(&sk, mem, ops);
+
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "--password-file",
+                "/no/such/password",
+            ])
+            .timeout(std::time::Duration::from_secs(30))
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains(expected).and(predicates::str::contains("no such file").not()));
+        cmd()
+            .args(["inspect", sk.to_str().unwrap()])
+            .assert()
+            .failure()
+            .stdout(predicates::str::is_empty())
+            .stderr(predicates::str::contains(expected));
+    }
+}
