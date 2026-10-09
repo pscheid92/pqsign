@@ -1,6 +1,7 @@
 use std::fs;
 
 use assert_cmd::Command;
+use predicates::prelude::*;
 
 fn cmd() -> Command {
     Command::cargo_bin("pqsign").unwrap()
@@ -537,4 +538,40 @@ fn test_cli_sign_without_terminal_requires_password_option() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("--password-stdin"));
+}
+
+// -- secret key file permissions --
+
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_warns_about_key_accessible_by_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    let sign = || {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-x",
+                sig.to_str().unwrap(),
+                "--password-stdin",
+            ])
+            .write_stdin("test-pw\n")
+            .assert()
+            .success()
+    };
+
+    sign().stderr(predicates::str::contains("warning").not());
+
+    fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
+    sign().stderr(predicates::str::contains("is accessible by other users (mode 0644)").and(predicates::str::contains("chmod 600")));
 }

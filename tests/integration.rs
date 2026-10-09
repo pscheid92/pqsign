@@ -217,3 +217,111 @@ fn test_secret_key_file_mode_is_600() {
     let mode = fs::metadata(&sk_path).unwrap().mode();
     assert_eq!(mode & 0o777, 0o600, "secret key should be mode 0600");
 }
+
+// -- atomic key writes --
+
+fn file_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[cfg(unix)]
+fn mode(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[test]
+fn test_generate_leaves_no_temp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    keygen(dir.path().join("test.key"), "test-pw", false).unwrap();
+    keygen(dir.path().join("test.key"), "test-pw", true).unwrap();
+
+    assert_eq!(file_names(dir.path()), ["test.key", "test.key.pub"]);
+}
+
+#[test]
+fn test_generate_overwrite_keeps_old_key_when_public_key_cannot_be_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    let pk_path = dir.path().join("test.key.pub");
+    keygen(sk_path.clone(), "old-pw", false).unwrap();
+    let old_secret_key = fs::read(&sk_path).unwrap();
+
+    // A non-empty directory in place of the public key makes its final rename fail.
+    fs::remove_file(&pk_path).unwrap();
+    fs::create_dir(&pk_path).unwrap();
+    fs::write(pk_path.join("blocker"), b"").unwrap();
+
+    assert!(keygen(sk_path.clone(), "new-pw", true).is_err());
+
+    assert_eq!(fs::read(&sk_path).unwrap(), old_secret_key);
+    format::read_secret_key(&sk_path, pw("old-pw")).unwrap();
+    assert_eq!(file_names(dir.path()), ["test.key", "test.key.pub"]);
+}
+
+#[test]
+fn test_write_key_pair_without_overwrite_never_replaces_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    let pk_path = dir.path().join("test.key.pub");
+    fs::write(&sk_path, b"existing").unwrap();
+
+    // Skips the existence check in `generate`, as if the file appeared after it.
+    let err = format::write_key_pair(&sk_path, &pk_path, &KeyPair::new(), pw("test-pw"), false).unwrap_err();
+
+    assert!(matches!(err, pqsign::errors::Error::FileExists(_)));
+    assert_eq!(fs::read(&sk_path).unwrap(), b"existing");
+    assert_eq!(
+        file_names(dir.path()),
+        ["test.key"],
+        "the public key written by the failed call is removed"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_generate_overwrite_makes_existing_key_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    fs::write(&sk_path, b"old").unwrap();
+    fs::set_permissions(&sk_path, fs::Permissions::from_mode(0o644)).unwrap();
+
+    keygen(sk_path.clone(), "test-pw", true).unwrap();
+
+    assert_eq!(mode(&sk_path), 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_generate_creates_private_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("keys").join("nested").join("test.key");
+
+    keygen(sk_path.clone(), "test-pw", false).unwrap();
+
+    assert_eq!(mode(&dir.path().join("keys")), 0o700);
+    assert_eq!(mode(&dir.path().join("keys").join("nested")), 0o700);
+    assert_eq!(mode(&sk_path), 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_generate_overwrite_writes_through_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("real.key");
+    let link = dir.path().join("link.key");
+    keygen(target.clone(), "old-pw", false).unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    keygen(link.clone(), "new-pw", true).unwrap();
+
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    format::read_secret_key(&target, pw("new-pw")).unwrap();
+}

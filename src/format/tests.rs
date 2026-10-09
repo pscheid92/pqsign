@@ -445,3 +445,26 @@ fn test_inspect_binary_public_key_file() {
         other => panic!("expected PublicKey, got: {other}"),
     }
 }
+
+// -- Secret key: truncated or padded files --
+
+#[test]
+fn test_secret_key_wrong_length_detected_before_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let (sk, _) = KeyPair::new().into_parts();
+    write_secret_key(&path, &sk, pw("test")).unwrap();
+    let data = std::fs::read(&path).unwrap();
+
+    let truncated = &data[..512];
+    let padded = [data.as_slice(), b"extra"].concat();
+    for corrupt in [truncated, padded.as_slice()] {
+        std::fs::write(&path, corrupt).unwrap();
+        let result = read_secret_key_with(&path, |_| panic!("password requested for a corrupt key file"));
+        match result {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains("truncated or corrupt"), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+}

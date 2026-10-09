@@ -5,6 +5,7 @@ use std::path::Path;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use fips204::traits::SerDes;
 
+use super::file::{self, Access};
 use super::{FileHeader, FileType};
 use crate::domain::*;
 use crate::errors::{Error, IoContext};
@@ -33,14 +34,16 @@ fn decode(data: &[u8]) -> Result<PublicKey, Error> {
     PublicKey::from_parts(header.key_id, ed25519_pk, mldsa65_pk)
 }
 
-pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).io_context(path)?;
-    }
-
+/// The single-line text form of a public key, including the trailing newline.
+pub(super) fn encode_text(public_key: &PublicKey) -> Result<String, Error> {
     let blob = encode(public_key)?;
-    let line = format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob));
-    fs::write(path, line).io_context(path)
+    Ok(format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob)))
+}
+
+/// Writes a public key atomically. An existing file is replaced.
+pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
+    let text = encode_text(public_key)?;
+    file::write(path, text.as_bytes(), Access::Public)
 }
 
 pub fn read(path: &Path) -> Result<PublicKey, Error> {

@@ -25,12 +25,12 @@ zeroize = { version = "1", features = ["derive"] }
 rpassword = "7"
 clap_complete = "4.6.0"
 home = "0.5"
+tempfile = "3"
 
 [dev-dependencies]
 assert_cmd = "2.2.0"
 criterion = "0.8"
 predicates = "3.1.4"
-tempfile = "3"
 
 [[bench]]
 name = "crypto"

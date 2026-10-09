@@ -29,8 +29,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
     eprintln!("Generating key pair...");
     let keypair = KeyPair::new();
-    format::write_secret_key(&secret_key_path, &keypair.secret_key, password)?;
-    format::write_public_key(&public_key_path, &keypair.public_key)?;
+    format::write_key_pair(&secret_key_path, &public_key_path, &keypair, password, overwrite)?;
 
     let pk_content = std::fs::read_to_string(&public_key_path).io_context(&public_key_path)?;
 

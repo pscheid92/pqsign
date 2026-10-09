@@ -27,6 +27,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
     // Validate input file before asking for the password
     std::fs::metadata(&file).io_context(&file)?;
+    warn_if_accessible_by_others(&secret_key_path);
 
     let secret_key = format::read_secret_key_with(&secret_key_path, |_kdf| password.read_existing())?;
 
@@ -38,6 +39,23 @@ pub fn run(opts: Options) -> Result<(), Error> {
     eprintln!("Secret key: {}", secret_key_path.display());
 
     Ok(())
+}
+
+/// Secret keys are encrypted, so this warns instead of refusing like ssh does. Keys written by pqsign 0.1
+/// with `generate --overwrite` could be left readable by everyone.
+fn warn_if_accessible_by_others(secret_key_path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::metadata(secret_key_path) else { return };
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            let path = secret_key_path.display();
+            eprintln!("warning: secret key {path} is accessible by other users (mode {mode:04o}); restrict it with: chmod 600 {path}");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = secret_key_path;
 }
 
 fn build_trusted_comment(file: &Path, comment: Option<&str>) -> String {
