@@ -5,8 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # The release workflow runs this whole suite before building a release.
+  # The release workflow runs this whole suite before building a release, passing only this secret.
   workflow_call:
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -55,10 +58,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Pulled through Google's Docker Hub mirror: GitHub's runners share IP addresses, so anonymous pulls from
-      # Docker Hub itself regularly hit its rate limit. The digest pins the same image on either registry.
-      # Dependabot does not update docker:// references; bump this digest by hand with new actionlint releases.
-      - name: Lint workflows
-        uses: docker://mirror.gcr.io/rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+
+      # Logged-in pulls count against the Docker Hub account instead of the runner's shared IP address, which
+      # anonymous pulls exhaust. Without credentials, as in pull requests from forks, the image is pulled anonymously.
+      - name: Check for Docker Hub credentials
+        id: dockerhub
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.dockerhub.outputs.available == 'true'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
-          args: -color
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Run with docker run, because a `uses: docker://` image is pulled before the first step, so before the login.
+      # actionlint 1.7.12. Dependabot does not update this image; bump the digest by hand with new releases.
+      - name: Lint workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
