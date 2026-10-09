@@ -85,7 +85,7 @@ pqsign verify document.pdf -P "pqsign:v1:..."     # inline public key
 pqsign verify document.pdf -q                      # quiet mode (exit code only)
 ```
 
-Exits 0 if the signature is valid, 1 otherwise.
+`verify` exits 0 if the signature is valid, 1 if it does not verify because the file changed or another key made it, and 2 if it could not be checked, for example because a file is missing or malformed. Every command exits 2 on other errors, like minisign and `gpgv`, so scripts can tell a bad signature from a broken setup.
 
 ### Shell completions
 

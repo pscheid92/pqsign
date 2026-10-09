@@ -1,3 +1,4 @@
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use super::util::resolve_signature_path;
@@ -12,10 +13,20 @@ pub fn run(file: PathBuf) -> Result<(), Error> {
         }
         Err(Error::InvalidFormat(_)) if !has_pqsign_extension(&file) => {
             let sig_path = resolve_signature_path(None, &file)?;
-            let info = format::inspect_file(&sig_path)?;
-            eprintln!("(inspecting {})", sig_path.display());
-            println!("{info}");
-            Ok(())
+            match format::inspect_file(&sig_path) {
+                Ok(info) => {
+                    eprintln!("(inspecting {})", sig_path.display());
+                    println!("{info}");
+                    Ok(())
+                }
+                // Report both, instead of only the missing signature, which hides that the file itself was rejected.
+                Err(Error::IoPath { source, .. }) if source.kind() == ErrorKind::NotFound => {
+                    let msg = format!("{} is not a pqsign file, and {} does not exist", file.display(), sig_path.display());
+                    let err = Error::InvalidFormat(msg);
+                    Err(err)
+                }
+                Err(e) => Err(e),
+            }
         }
         Err(e) => Err(e),
     }
