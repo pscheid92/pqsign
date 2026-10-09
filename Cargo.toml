@@ -21,7 +21,8 @@ rand = "0.10"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.23"
 thiserror = "2"
-zeroize = { version = "1", features = ["derive"] }
+# 1.9.1 stops wiping a Vec twice; 1.9.0 made every Argon2id key derivation about 100 ms slower.
+zeroize = { version = "1.9.1", features = ["derive"] }
 rpassword = "7"
 clap_complete = "4.6.0"
 home = "0.5"
