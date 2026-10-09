@@ -51,7 +51,7 @@ Time to exhaust common password spaces (single core, average case):
 | 6-digit PIN | 1,000,000 | ~2.2 days | ~12.1 days |
 | Dictionary (100K) | 100,000 | ~5.3 hours | ~29 hours |
 | 8-char lowercase | 209 billion | ~1,275 years | ~7,000 years |
-| 4-word diceware | 3.66 trillion | ~22,300 years | ~122,000 years |
+| 4-word diceware | 3.66 quadrillion | ~22.3 million years | ~121 million years |
 
 ## Analysis
 

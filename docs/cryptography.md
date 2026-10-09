@@ -6,7 +6,7 @@ This document explains the cryptographic decisions behind pqsign and why they we
 
 Post-quantum algorithms like ML-DSA-65 are relatively new. While they have undergone extensive analysis and NIST standardization, they lack the decades of real-world scrutiny that Ed25519 has. Conversely, Ed25519 is well-understood today but will be broken by a sufficiently large quantum computer running Shor's algorithm.
 
-A hybrid scheme provides a simple guarantee: **if either algorithm remains secure, your signatures remain secure.** This protects against both classical attacks (where ML-DSA-65 holds) and quantum attacks (where ML-DSA-65 holds while Ed25519 falls).
+A hybrid scheme provides a simple guarantee: **if either algorithm remains secure, your signatures remain secure.** A quantum computer that breaks Ed25519 still has to break ML-DSA-65, and a classical attack on the younger ML-DSA-65, or a flaw in its implementation, still has to get past Ed25519.
 
 ## Algorithm Choices
 
@@ -26,7 +26,7 @@ The post-quantum component. Chosen for:
 - NIST standardized (FIPS 204, finalized 2024) — the successor to the CRYSTALS-Dilithium candidate
 - Security level 3 (roughly equivalent to AES-192) — a pragmatic middle ground between ML-DSA-44 (level 2) and ML-DSA-87 (level 5)
 - Lattice-based, well-studied problem (Module-LWE/Module-SIS)
-- Larger signatures (3309 bytes) and keys (1952/2560 bytes), but acceptable for file signing where signatures are stored on disk
+- Larger signatures (3309 bytes) and keys (1952-byte public key, 4032-byte secret key), but acceptable for file signing where signatures are stored on disk
 
 We chose level 3 over level 5 because the size/performance tradeoff is significant (ML-DSA-87 signatures are 4627 bytes) and level 3 already provides a substantial security margin.
 
@@ -137,9 +137,11 @@ The encrypted payload contains:
 
 ```
 ed25519_secret_key  (32 bytes)
-mldsa65_secret_key  (2544 bytes)
+mldsa65_secret_key  (4032 bytes)
 key_id              (8 bytes)
 ```
+
+That is 4072 bytes, or 4088 bytes encrypted with the 16-byte Poly1305 tag. pqsign checks this length before asking for the password, so a truncated key file is reported as corrupt rather than as a wrong password.
 
 The key ID is duplicated inside the encrypted payload and in the plaintext header. On decryption, these are cross-checked to detect file corruption.
 

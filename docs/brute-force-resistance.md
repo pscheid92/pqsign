@@ -17,9 +17,9 @@ Argon2id's 256 MiB memory requirement limits GPU parallelism. Each attempt needs
 | RTX 4090 | 24 GB | ~96 |
 | A100 / H100 | 80 GB | ~320 |
 
-This is a fraction of the thousands of parallel hashes GPUs can run against memory-cheap KDFs like bcrypt or PBKDF2. Additionally, Argon2id's sequential memory access pattern (1 lane of parallelism) maps poorly to GPU architectures, making each attempt slower on a GPU than on a CPU core.
+This is a fraction of the thousands of parallel hashes GPUs can run against memory-cheap KDFs like bcrypt or PBKDF2.
 
-In practice, a single high-end GPU provides roughly the same throughput as 100 CPU cores for this workload.
+The estimates below assume each of those parallel attempts runs as fast as on one CPU core, so one RTX 4090 counts as about 96 cores and one A100 as about 320. Real GPU throughput depends on the cracking software, so read the GPU columns as orders of magnitude rather than exact figures.
 
 ## Time to Crack
 
@@ -40,7 +40,7 @@ Average time to exhaust half the search space (i.e., expected time to find the p
 The Argon2id parameters (256 MiB, 3 iterations) make brute-force expensive, but **password entropy is the real defense**:
 
 - **Weak passwords (PINs, dictionary words) fall in minutes to hours** regardless of KDF tuning. No amount of memory-hardness saves a 4-digit PIN.
-- **8+ character random passwords are safe** against any single attacker, even with high-end GPU hardware.
-- **4+ word diceware passphrases are effectively unbreakable** — hundreds of thousands of years even on datacenter GPUs.
+- **8 random characters are not enough against a determined attacker.** Eight random lowercase letters fall to one A100 in about 4 years, and to ten of them in about 5 months. Eight random letters and digits last about 4,200 years on one A100, a margin that an attacker renting many GPUs shrinks accordingly.
+- **4 random words or 20 random characters are effectively unbreakable.** A 4-word diceware passphrase takes about 70,000 years on one A100, and 20 random letters and digits from a password manager take far longer than the age of the universe.
 
-Choose a strong password. The KDF buys time; the password provides the actual security.
+This is the advice in the README: use at least 4 random words, or at least 20 random characters from a password manager. The KDF buys time; the password provides the actual security.
