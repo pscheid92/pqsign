@@ -5,18 +5,25 @@ use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, inspect, sign, verify};
 use pqsign::domain::{KeyPair, SignatureFormat};
-use pqsign::format;
+use pqsign::format::{self, Kdf};
 use pqsign::password::PasswordSource;
 
 fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
 }
 
+/// Small Argon2id parameters, so tests do not spend their time deriving keys. `generate` always uses the defaults.
+const TEST_KDF: Kdf = Kdf::Argon2id {
+    mem_limit: 64 * 1024,
+    ops_limit: 1,
+};
+
 fn keygen(secret_key: PathBuf, password: &str, overwrite: bool) -> Result<(), pqsign::errors::Error> {
     generate::run(generate::Options {
         secret_key: Some(secret_key),
         password: PasswordSource::Given(pw(password)),
         overwrite,
+        kdf: TEST_KDF,
     })
 }
 
@@ -273,7 +280,7 @@ fn test_write_key_pair_without_overwrite_never_replaces_files() {
     fs::write(&sk_path, b"existing").unwrap();
 
     // Skips the existence check in `generate`, as if the file appeared after it.
-    let err = format::write_key_pair(&sk_path, &pk_path, &KeyPair::new(), pw("test-pw"), false).unwrap_err();
+    let err = format::write_key_pair(&sk_path, &pk_path, &KeyPair::new(), pw("test-pw"), false, &TEST_KDF).unwrap_err();
 
     assert!(matches!(err, pqsign::errors::Error::FileExists(_)));
     assert_eq!(fs::read(&sk_path).unwrap(), b"existing");

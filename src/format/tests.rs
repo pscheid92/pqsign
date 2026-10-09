@@ -175,13 +175,19 @@ fn pw(s: &str) -> Zeroizing<String> {
     Zeroizing::new(s.into())
 }
 
+/// Small Argon2id parameters, so tests do not spend their time deriving keys. `generate` always uses the defaults.
+const TEST_KDF: Kdf = Kdf::Argon2id {
+    mem_limit: 64 * 1024,
+    ops_limit: 1,
+};
+
 #[test]
 fn test_secret_key_roundtrip_with_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("test-password")).unwrap();
+    write_secret_key(&path, &sk, pw("test-password"), &TEST_KDF).unwrap();
     let sk2 = read_secret_key(&path, pw("test-password")).unwrap();
 
     assert_eq!(sk.key_id, sk2.key_id);
@@ -195,8 +201,52 @@ fn test_secret_key_wrong_password() {
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("correct")).unwrap();
+    write_secret_key(&path, &sk, pw("correct"), &TEST_KDF).unwrap();
     assert!(matches!(read_secret_key(&path, pw("wrong")), Err(Error::WrongPassword)));
+}
+
+#[test]
+fn test_secret_key_records_its_kdf_parameters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let (sk, _) = KeyPair::new().into_parts();
+
+    let kdf = Kdf::Argon2id {
+        mem_limit: 128 * 1024,
+        ops_limit: 2,
+    };
+    write_secret_key(&path, &sk, pw("test"), &kdf).unwrap();
+
+    let mut recorded = None;
+    read_secret_key_with(&path, |kdf| {
+        recorded = Some(*kdf);
+        Ok(pw("test"))
+    })
+    .unwrap();
+    assert_eq!(recorded, Some(kdf));
+}
+
+/// pqsign never writes a key it would refuse to read.
+#[test]
+fn test_secret_key_write_rejects_invalid_kdf_parameters() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let (sk, _) = KeyPair::new().into_parts();
+
+    let cases = [
+        (2048 * 1024 * 1024, 3, "asks for 2048 MiB of Argon2id memory"),
+        (64 * 1024, 17, "asks for 17 Argon2id iterations"),
+        (64 * 1024, 0, "invalid Argon2id parameters"),
+    ];
+    for (mem_limit, ops_limit, expected) in cases {
+        let kdf = Kdf::Argon2id { mem_limit, ops_limit };
+        match write_secret_key(&path, &sk, pw("test"), &kdf) {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains(expected), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(()) => panic!("expected an error for {kdf:?}"),
+        }
+        assert!(!path.exists());
+    }
 }
 
 #[test]
@@ -205,7 +255,7 @@ fn test_secret_key_is_raw_binary() {
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
 
-    write_secret_key(&path, &sk, pw("test")).unwrap();
+    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
     let data = std::fs::read(&path).unwrap();
 
     assert_eq!(&data[0..4], b"PQSN");
@@ -406,7 +456,7 @@ fn test_read_signature_on_secret_key_file_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test")).unwrap();
+    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
 
     assert!(matches!(read_signature(&sk_path), Err(Error::InvalidFormat(_))));
 }
@@ -416,7 +466,7 @@ fn test_read_public_key_text_on_secret_key_binary_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test")).unwrap();
+    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
 
     assert!(read_public_key(&sk_path).is_err());
 }
@@ -464,7 +514,7 @@ fn test_secret_key_wrong_length_detected_before_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
     let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&path, &sk, pw("test")).unwrap();
+    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
     let data = std::fs::read(&path).unwrap();
 
     let truncated = &data[..512];

@@ -32,6 +32,11 @@ assert_cmd = "2.2.0"
 criterion = "0.8"
 predicates = "3.1.4"
 
+# Unoptimized, Argon2id at the default 256 MiB takes about 5 s instead of 0.4 s. Tests that run `generate` keep the
+# defaults, and debug builds are what people try out.
+[profile.dev.package.argon2]
+opt-level = 3
+
 [profile.release]
 lto = "fat"
 codegen-units = 1
