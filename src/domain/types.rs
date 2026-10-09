@@ -97,6 +97,7 @@ pub struct KeyId(pub(crate) [u8; 8]);
 byte_io!(KeyId, 8);
 
 impl KeyId {
+    /// A random key ID, as pqsign 0.1 gave new keys. Keys now take their ID from their fingerprint.
     pub fn random(rng: &mut impl Rng) -> KeyId {
         let mut buf = [0u8; Self::LEN];
         rng.fill_bytes(&mut buf);

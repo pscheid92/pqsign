@@ -11,7 +11,7 @@ use crate::errors::Error;
 
 const TEXT_PREFIX: &str = "pqsign:v1:";
 
-fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
+pub(super) fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
     let mut buf = Vec::new();
     FileHeader::new(FileType::PublicKey, public_key.key_id).write_to(&mut buf)?;
     Ed25519PublicKey::from_bytes(public_key.ed25519.to_bytes()).write_to(&mut buf)?;
@@ -19,7 +19,7 @@ fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
     Ok(buf)
 }
 
-fn decode(data: &[u8]) -> Result<PublicKey, Error> {
+pub(super) fn decode(data: &[u8]) -> Result<PublicKey, Error> {
     let mut r = Cursor::new(data);
 
     let header = FileHeader::read(&mut r)?;

@@ -12,7 +12,13 @@ Download a prebuilt binary from the [latest release](https://github.com/pscheid9
 cargo install --path .
 ```
 
-All release binaries are signed with pqsign itself. See [install & verification](docs/install.md) for details.
+All release binaries are signed with pqsign itself. The release signing key [`release.key.pub`](release.key.pub) has this fingerprint:
+
+```
+BLAKE2b-256:tgolgaKRfSGSvflaZqCjVtX+YXy6I+/tgvAbOW/npIc
+```
+
+See [install & verification](docs/install.md) for how to check a download.
 
 ## Quick Start
 
@@ -38,6 +44,8 @@ pqsign generate                          # default path ~/.pqsign/default.key
 pqsign generate -s mykey.key             # custom path
 pqsign generate -s mykey.key --force     # overwrite existing
 ```
+
+`generate` prints the key's fingerprint, and `pqsign inspect mykey.key.pub` shows it again. Share the fingerprint through a different channel than the key itself, so others can check they received the right key. The 16-character key ID only locates a key and is not enough for that.
 
 The public key is written alongside the secret key with a `.pub` extension as a single-line text string suitable for sharing:
 
