@@ -101,7 +101,7 @@ pqsign inspect document.pdf      # auto-finds document.pdf.pqsig
 3. **ML-DSA-65** signs `(hash || ed25519_signature)` — nesting prevents selective signature replacement.
 4. Verification requires both signatures to pass.
 
-Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. All secret material is zeroized on drop.
+Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. Secret key material, passwords and the Argon2id working memory are wiped from memory after use; see [memory safety](docs/cryptography.md#memory-safety) for what that does and does not cover.
 
 **Password guidance**: The Argon2id KDF makes brute-force expensive (~2.6 attempts/sec per core), but a weak password is still crackable. Use a passphrase of 4+ random words or a 20+ character random password from a password manager. See [brute-force resistance](docs/brute-force-resistance.md) for details.
 
