@@ -8,9 +8,9 @@ use rand::Rng;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::fingerprint::Fingerprint;
-use super::signature::Signature;
+use super::prehash_file;
+use super::signature::{Signature, SignatureFormat, SignedMessage, Version};
 use super::types::*;
-use super::{ED25519_CONTEXT, MLDSA65_CONTEXT, prehash_file};
 use crate::errors::Error;
 
 pub struct KeyPair {
@@ -93,22 +93,34 @@ impl SecretKey {
         })
     }
 
+    /// The fingerprint of the matching public key, which the secret key can derive itself.
+    pub fn fingerprint(&self) -> Fingerprint {
+        Fingerprint::of(&self.ed25519.verifying_key(), &self.mldsa65.get_public_key())
+    }
+
+    /// Signs a file in the current format, v2.
     pub fn sign(&self, path: &Path, trusted_comment: &str) -> Result<Signature, Error> {
+        self.sign_as(path, trusted_comment, SignatureFormat::V2)
+    }
+
+    /// Signs a file in the given format. Use v1 only for verifiers older than pqsign 0.2.
+    pub fn sign_as(&self, path: &Path, trusted_comment: &str, format: SignatureFormat) -> Result<Signature, Error> {
         let file_hash = prehash_file(path)?;
+        let version = match format {
+            SignatureFormat::V1 => Version::V1,
+            SignatureFormat::V2 => Version::V2 { signer: self.fingerprint() },
+        };
+        let message = SignedMessage::new(version, self.key_id, &file_hash, trusted_comment);
 
-        // Ed25519 signs (domain prefix || file hash || trusted comment)
-        let ed25519_msg = [ED25519_CONTEXT, file_hash.as_ref(), trusted_comment.as_bytes()].concat();
-        let ed25519 = Ed25519Signature::from_bytes(self.ed25519.sign(&ed25519_msg).to_bytes());
-
-        // ML-DSA-65 nests over (file hash || ed25519 sig) with domain context
-        let mldsa65_msg = [file_hash.as_ref(), ed25519.as_ref()].concat();
+        let ed25519 = Ed25519Signature::from_bytes(self.ed25519.sign(&message.ed25519()).to_bytes());
         let mldsa65 = MlDsa65Signature::from_bytes(
             self.mldsa65
-                .try_sign(&mldsa65_msg, MLDSA65_CONTEXT)
+                .try_sign(&message.mldsa65(&ed25519), message.mldsa65_context())
                 .map_err(|e| Error::Crypto(e.to_string()))?,
         );
 
         Ok(Signature {
+            version,
             key_id: self.key_id,
             ed25519,
             mldsa65,

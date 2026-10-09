@@ -3,16 +3,27 @@ use std::io::Cursor;
 use std::path::Path;
 
 use super::{FileHeader, FileType, file, kdf};
-use crate::domain::{Fingerprint, KeyId, PublicKey};
+use crate::domain::{Fingerprint, KeyId, PublicKey, SignatureFormat};
 use crate::errors::Error;
 use crate::format::kdf::Kdf;
 
 // -- Public API --
 
 pub enum FileInfo {
-    PublicKey { key_id: KeyId, fingerprint: Fingerprint },
-    SecretKey { key_id: KeyId, kdf: Kdf },
-    Signature { key_id: KeyId, trusted_comment: String },
+    PublicKey {
+        key_id: KeyId,
+        fingerprint: Fingerprint,
+    },
+    SecretKey {
+        key_id: KeyId,
+        kdf: Kdf,
+    },
+    Signature {
+        key_id: KeyId,
+        format: SignatureFormat,
+        signer: Option<Fingerprint>,
+        trusted_comment: String,
+    },
 }
 
 /// Reads the file once, bounded to the size of a pqsign file, and decodes it from memory.
@@ -53,9 +64,17 @@ impl fmt::Display for FileInfo {
                 }
             }
             // inspect never checks the signature, so the comment is shown as unverified.
-            FileInfo::Signature { key_id, trusted_comment } => {
-                writeln!(f, "Type:                 Signature")?;
+            FileInfo::Signature {
+                key_id,
+                format,
+                signer,
+                trusted_comment,
+            } => {
+                writeln!(f, "Type:                 Signature (format {format})")?;
                 writeln!(f, "Key ID:               {key_id}")?;
+                if let Some(signer) = signer {
+                    writeln!(f, "Signer (unverified):  {signer}")?;
+                }
                 writeln!(f, "Algorithms:           Ed25519 + ML-DSA-65")?;
                 write!(f, "Comment (unverified): {trusted_comment}")
             }
@@ -86,6 +105,8 @@ fn inspect_binary(data: &[u8]) -> Result<FileInfo, Error> {
             let sig = super::signature::decode(data)?;
             FileInfo::Signature {
                 key_id: sig.key_id,
+                format: sig.format(),
+                signer: sig.signer(),
                 trusted_comment: sig.trusted_comment,
             }
         }

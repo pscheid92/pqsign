@@ -107,9 +107,12 @@ pqsign inspect document.pdf      # auto-finds document.pdf.pqsig
 ## How It Works
 
 1. The file is hashed with **BLAKE2b-512** (streamed, never fully loaded into memory).
-2. **Ed25519** signs `(context || hash || trusted_comment)`.
-3. **ML-DSA-65** signs `(hash || ed25519_signature)` — nesting prevents selective signature replacement.
-4. Verification requires both signatures to pass.
+2. A **record** is built from the format version, the algorithm suite, the key ID, the signer's fingerprint, the hash and the trusted comment.
+3. **Ed25519** signs `(context || record)`.
+4. **ML-DSA-65** signs `(record || ed25519_signature)` — each algorithm covers everything on its own, and nesting prevents selective signature replacement.
+5. Verification requires both signatures to pass.
+
+This is signature format v2, written since pqsign 0.2. Signatures from pqsign 0.1 (format v1) still verify, and `pqsign sign --format v1` writes one for verifiers older than 0.2.
 
 Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. Secret key material, passwords and the Argon2id working memory are wiped from memory after use; see [memory safety](docs/cryptography.md#memory-safety) for what that does and does not cover.
 

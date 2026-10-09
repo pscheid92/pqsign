@@ -5,7 +5,7 @@ mod types;
 
 pub use fingerprint::Fingerprint;
 pub use keys::{KeyPair, PublicKey, SecretKey};
-pub use signature::Signature;
+pub use signature::{Signature, SignatureFormat};
 pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Signature};
 
 use std::fs::File;
@@ -15,9 +15,6 @@ use std::path::Path;
 use blake2::{Blake2b512, Digest};
 
 use crate::errors::{Error, IoContext};
-
-const ED25519_CONTEXT: &[u8] = b"pqsign-ed25519";
-const MLDSA65_CONTEXT: &[u8] = b"pqsign-mldsa65";
 
 fn prehash_file(path: &Path) -> Result<[u8; 64], Error> {
     let file = File::open(path).io_context(path)?;

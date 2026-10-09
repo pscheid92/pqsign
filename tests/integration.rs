@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, inspect, sign, verify};
-use pqsign::domain::KeyPair;
+use pqsign::domain::{KeyPair, SignatureFormat};
 use pqsign::format;
 use pqsign::password::PasswordSource;
 
@@ -27,6 +27,7 @@ fn sig(file: PathBuf, secret_key: PathBuf, sig_file: Option<PathBuf>, trusted_co
         sig_file,
         trusted_comment,
         password: PasswordSource::Given(pw("test-pw")),
+        format: SignatureFormat::V2,
     })
 }
 

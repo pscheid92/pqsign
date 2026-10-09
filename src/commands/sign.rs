@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::util::{resolve_key_path, resolve_signature_path};
+use crate::domain::SignatureFormat;
 use crate::errors::{Error, IoContext};
 use crate::format;
 use crate::password::PasswordSource;
@@ -12,6 +13,7 @@ pub struct Options {
     pub sig_file: Option<PathBuf>,
     pub trusted_comment: Option<String>,
     pub password: PasswordSource,
+    pub format: SignatureFormat,
 }
 
 pub fn run(opts: Options) -> Result<(), Error> {
@@ -21,6 +23,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         sig_file,
         trusted_comment,
         password,
+        format,
     } = opts;
     let secret_key_path = resolve_key_path(secret_key, "default.key")?;
     let signature_path = resolve_signature_path(sig_file, &file)?;
@@ -32,7 +35,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     warn_if_accessible_by_others(&secret_key_path);
 
     let secret_key = format::read_secret_key_with(&secret_key_path, |_kdf| password.read_existing())?;
-    let signature = secret_key.sign(&file, &trusted)?;
+    let signature = secret_key.sign_as(&file, &trusted, format)?;
 
     format::write_signature(&signature_path, &signature)?;
     eprintln!("Signature:  {}", signature_path.display());

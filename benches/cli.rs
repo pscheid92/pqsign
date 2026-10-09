@@ -5,6 +5,7 @@ use tempfile::TempDir;
 use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, sign, verify};
+use pqsign::domain::SignatureFormat;
 use pqsign::password::PasswordSource;
 
 fn password() -> Zeroizing<String> {
@@ -66,6 +67,7 @@ fn bench_sign(c: &mut Criterion) {
                     sig_file: Some(dir.path().join("test.pqsig")),
                     trusted_comment: Some("benchmark".to_string()),
                     password: PasswordSource::Given(password()),
+                    format: SignatureFormat::V2,
                 })
                 .unwrap();
             });
@@ -97,6 +99,7 @@ fn bench_verify(c: &mut Criterion) {
             sig_file: Some(dir.path().join(format!("test_{size}.pqsig"))),
             trusted_comment: Some("benchmark".to_string()),
             password: PasswordSource::Given(password()),
+            format: SignatureFormat::V2,
         })
         .unwrap();
 

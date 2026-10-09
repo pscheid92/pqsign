@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::domain::KeyId;
+use crate::domain::{Fingerprint, KeyId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -36,6 +36,9 @@ pub enum Error {
 
     #[error("key ID mismatch: signature has {sig_id}, public key has {pk_id}")]
     KeyIdMismatch { sig_id: KeyId, pk_id: KeyId },
+
+    #[error("signed by key {signer}, but the public key is {public_key}")]
+    SignerMismatch { signer: Fingerprint, public_key: Fingerprint },
 
     #[error("signature verification failed")]
     SignatureVerificationFailed,

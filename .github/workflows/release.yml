@@ -92,8 +92,10 @@ jobs:
         env:
           PQSIGN_PASSWORD: ${{ secrets.PQSIGN_PASSWORD }}
         run: |
+          # .pqsig is the current format; .v1.pqsig lets pqsign 0.1 verify the release it upgrades to.
           for archive in artifacts/*; do
             printf '%s\n' "$PQSIGN_PASSWORD" | pqsign sign "$archive" -s /tmp/release.key --password-stdin
+            printf '%s\n' "$PQSIGN_PASSWORD" | pqsign sign "$archive" -s /tmp/release.key --password-stdin --format v1 -x "$archive.v1.pqsig"
           done
 
       - name: Shred signing key

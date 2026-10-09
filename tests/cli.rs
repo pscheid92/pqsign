@@ -859,3 +859,93 @@ fn test_cli_generate_inspect_and_verify_show_the_same_fingerprint() {
         .success()
         .stdout(predicates::str::contains(expected.as_str()));
 }
+
+// -- signature formats --
+
+#[test]
+fn test_cli_sign_writes_v2_by_default_and_v1_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    let v2 = dir.path().join("msg.txt.pqsig");
+    let v1 = dir.path().join("msg.txt.v1.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    let fingerprint = pqsign::format::read_public_key(&pk).unwrap().fingerprint();
+
+    sign_file(&file, &sk, &v2);
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            v1.to_str().unwrap(),
+            "--format",
+            "v1",
+            "--password-stdin",
+        ])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+
+    cmd()
+        .args(["inspect", v2.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Signature (format v2)").and(predicates::str::contains(format!("Signer (unverified):  {fingerprint}"))));
+    cmd()
+        .args(["inspect", v1.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Signature (format v1)").and(predicates::str::contains("Signer").not()));
+
+    for sig in [&v2, &v1] {
+        cmd()
+            .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn test_cli_verify_names_both_keys_when_the_signer_differs() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("signer.key");
+    let other = dir.path().join("other.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    generate_key(&other);
+    sign_file(&file, &sk, &sig);
+
+    let signer = pqsign::format::read_public_key(&dir.path().join("signer.key.pub")).unwrap().fingerprint();
+    let given = pqsign::format::read_public_key(&dir.path().join("other.key.pub")).unwrap().fingerprint();
+
+    cmd()
+        .args([
+            "verify",
+            file.to_str().unwrap(),
+            "-p",
+            dir.path().join("other.key.pub").to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(format!(
+            "signed by key {signer}, but the public key is {given}"
+        )));
+}
+
+#[test]
+fn test_cli_sign_rejects_unknown_format() {
+    cmd()
+        .args(["sign", "msg.txt", "--format", "v3"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("invalid value 'v3'"));
+}

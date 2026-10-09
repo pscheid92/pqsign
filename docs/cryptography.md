@@ -40,13 +40,29 @@ Used to prehash files before signing. Chosen over SHA-512 for:
 
 ## Signature Construction
 
-The two signatures are not independent — they are **nested**:
+Since pqsign 0.2, signatures use format v2. Both algorithms sign one **record** that holds everything the signature asserts, and the two signatures are **nested**:
 
 ```
-file_hash     = BLAKE2b-512(file_contents)
-ed25519_sig   = Ed25519.Sign(ed25519_sk, "pqsign-ed25519" || file_hash || trusted_comment)
-mldsa65_sig   = ML-DSA-65.Sign(mldsa65_sk, file_hash || ed25519_sig, ctx="pqsign-mldsa65")
+file_hash   = BLAKE2b-512(file_contents)
+record      = 0x02 || suite || key_id || signer_fingerprint || file_hash || len(comment) || comment
+ed25519_sig = Ed25519.Sign(ed25519_sk, "pqsign-v2-ed25519" || record)
+mldsa65_sig = ML-DSA-65.Sign(mldsa65_sk, record || ed25519_sig, ctx="pqsign-v2-mldsa65")
 ```
+
+`suite` is `0x01` for Ed25519 + ML-DSA-65 over BLAKE2b-512, `key_id` is 8 bytes, `signer_fingerprint` is the 32-byte fingerprint of the signing key, and `len(comment)` is a little-endian u64. Every field but the comment has a fixed length, and the comment is length-prefixed, so the record is unambiguous.
+
+Each algorithm signs the whole record on its own, so the file, the comment, the key ID and the signer stay protected even if one algorithm is broken or a verifier only checks one of them.
+
+### Format v1
+
+pqsign 0.1 wrote format v1, which pqsign still verifies and writes on request with `sign --format v1`, for verifiers older than 0.2:
+
+```
+ed25519_sig = Ed25519.Sign(ed25519_sk, "pqsign-ed25519" || file_hash || trusted_comment)
+mldsa65_sig = ML-DSA-65.Sign(mldsa65_sk, file_hash || ed25519_sig, ctx="pqsign-mldsa65")
+```
+
+In v1, neither algorithm signs the key ID, and ML-DSA-65 covers the comment only through the Ed25519 signature bytes. A full verification still binds the comment, because changing it breaks the Ed25519 check, and defeating that even with Ed25519 broken would take a second preimage in SHA-512. But a verifier that checks only ML-DSA-65 would accept a changed comment, and the key ID can be changed freely.
 
 ### Why Nesting?
 
@@ -58,16 +74,16 @@ An alternative would be to have both algorithms sign the identical message. The 
 
 ### Domain Separation
 
-Each algorithm uses a distinct context to prevent cross-protocol attacks:
+Each algorithm uses a distinct context to prevent cross-protocol attacks, and each format its own, so no message of one format is valid in the other:
 
-- Ed25519 prepends `"pqsign-ed25519"` to the signed message
-- ML-DSA-65 uses `"pqsign-mldsa65"` as the context parameter (per FIPS 204 context string mechanism)
+- Ed25519 prepends `"pqsign-v2-ed25519"` (v1: `"pqsign-ed25519"`) to the signed message
+- ML-DSA-65 uses `"pqsign-v2-mldsa65"` (v1: `"pqsign-mldsa65"`) as the context parameter (per FIPS 204 context string mechanism)
 
 Note: Ed25519 context is prepended manually to the message rather than using RFC 8032's Ed25519ctx mechanism. Ed25519ctx (`dom2(0, context)` on the raw message) is not exposed by `ed25519-dalek` — the library only offers Ed25519ph (`dom2(1, context)` on a SHA-512 prehash), which is a different algorithm. Using Ed25519ph would double-hash our BLAKE2b output through SHA-512 for no security benefit. Manual prepending with plain Ed25519 achieves the same domain separation goal without altering the underlying signature construction.
 
 ### Trusted Comment Binding
 
-The trusted comment (timestamp, filename, user-provided text) is included in the Ed25519 signed message. Since ML-DSA-65 signs over the Ed25519 signature, the comment is transitively bound to both signatures. Modifying the comment invalidates the Ed25519 signature, which in turn invalidates the ML-DSA-65 signature.
+The trusted comment (timestamp, filename, user-provided text) is part of the record both algorithms sign, so modifying it invalidates both signatures. In v1 it is part of the Ed25519 message only, and bound to ML-DSA-65 through the Ed25519 signature.
 
 The comment is `timestamp:<unix time>\tfile:<file name>`, followed by a tab and the text given with `-t`. The file name is the base name only, so a signature does not reveal the directory it was signed in.
 
@@ -77,7 +93,9 @@ A trusted comment is at most 1024 bytes and may not contain control characters o
 
 ## Key IDs and Fingerprints
 
-Every key file and signature carries an 8-byte **key ID**, so a signature can be matched with the key that made it. Since pqsign 0.2, a new key's ID is the first 8 bytes of its fingerprint; keys generated with 0.1 have random IDs and keep working. A key ID locates a key but does not identify it: 64 bits are too few to rule out another key with the same ID, and in v1 signature files the key ID is not covered by the signatures.
+Every key file and signature carries an 8-byte **key ID**, so a signature can be matched with the key that made it. Since pqsign 0.2, a new key's ID is the first 8 bytes of its fingerprint; keys generated with 0.1 have random IDs and keep working. A key ID locates a key but does not identify it: 64 bits are too few to rule out another key with the same ID. In v2 signatures both algorithms sign the key ID; in v1 signatures neither does.
+
+v2 signatures also carry the signer's fingerprint, which both algorithms sign. `inspect` shows it as the claimed signer, and `verify` checks it first, so a signature checked against the wrong key fails with a message that names both keys.
 
 A key's **fingerprint** identifies it:
 
@@ -146,17 +164,31 @@ All binary files share a common header:
 ```
 Offset  Size  Field
 0       4     Magic: "PQSN"
-4       1     Format version (currently 1)
+4       1     Format version: 1 for key files, 2 for signatures (1 for signatures before pqsign 0.2)
 5       1     File type: 0x01=PublicKey, 0x02=SecretKey, 0x03=Signature
-6       8     Key ID (random, for cross-referencing)
+6       8     Key ID
 ```
 
-The version byte allows future format changes without breaking existing files. Readers reject versions higher than what they support.
+Each file type has its own version, so a new signature format does not relabel key files. Readers reject version 0 and versions newer than they support for that file type, with a message naming the version required.
+
+A v2 signature file continues with:
+
+```
+Offset  Size  Field
+14      1     Algorithm suite: 0x01 = Ed25519 + ML-DSA-65 over BLAKE2b-512
+15      32    Signer fingerprint
+47      64    Ed25519 signature
+111     3309  ML-DSA-65 signature
+3420    4     Comment length (u32, little-endian, at most 1024)
+3424    n     Trusted comment (UTF-8)
+```
+
+A v1 signature file has no suite and fingerprint: the Ed25519 signature follows the header directly. Nothing may follow the comment in a v2 file.
 
 Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes.
 
 ## Known Limitations
 
-- **No algorithm agility in signatures** — the algorithm pair is fixed. A future version could add a negotiation mechanism, but for now simplicity is preferred over flexibility.
+- **One algorithm suite** — v2 signatures name their algorithm suite, so a future version can add another, but only Ed25519 + ML-DSA-65 exists today and there is no negotiation.
 - **No streaming signatures** — the file is hashed in a single pass, but the hash must complete before signing begins. This is inherent to the prehash approach.
 - **BLAKE2b-512 is not post-quantum as a hash** — however, Grover's algorithm only halves the effective security of hash functions, leaving BLAKE2b-512 at 256-bit post-quantum security, which is more than sufficient.

@@ -576,3 +576,125 @@ fn test_read_signature_rejects_forbidden_comment() {
         }
     }
 }
+
+// -- Signature format v2 --
+
+fn signed_test_file() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.txt");
+    std::fs::write(&file, b"test data").unwrap();
+    let sig_path = dir.path().join("test.txt.pqsig");
+    (dir, file, sig_path)
+}
+
+fn invalid_format_message<T>(result: Result<T, Error>) -> String {
+    match result {
+        Err(Error::InvalidFormat(msg)) => msg,
+        Err(other) => panic!("expected InvalidFormat, got: {other}"),
+        Ok(_) => panic!("expected an error, got Ok"),
+    }
+}
+
+#[test]
+fn test_signature_v2_roundtrip_and_layout() {
+    use crate::domain::SignatureFormat;
+
+    let (_dir, file, sig_path) = signed_test_file();
+    let (sk, pk) = KeyPair::new().into_parts();
+    write_signature(&sig_path, &sk.sign(&file, "comment").unwrap()).unwrap();
+
+    let data = std::fs::read(&sig_path).unwrap();
+    assert_eq!(data[4], 2, "header version");
+    assert_eq!(data[14], crate::domain::signature::SUITE_ED25519_MLDSA65, "suite");
+    assert_eq!(&data[15..47], pk.fingerprint().as_bytes(), "signer fingerprint");
+
+    let sig = read_signature(&sig_path).unwrap();
+    assert_eq!(sig.format(), SignatureFormat::V2);
+    assert_eq!(sig.signer(), Some(pk.fingerprint()));
+    assert_eq!(sig.trusted_comment, "comment");
+    sig.verify(&pk, &file).unwrap();
+}
+
+#[test]
+fn test_signature_v1_written_on_request() {
+    use crate::domain::SignatureFormat;
+
+    let (_dir, file, sig_path) = signed_test_file();
+    let (sk, pk) = KeyPair::new().into_parts();
+    write_signature(&sig_path, &sk.sign_as(&file, "comment", SignatureFormat::V1).unwrap()).unwrap();
+
+    assert_eq!(std::fs::read(&sig_path).unwrap()[4], 1, "header version");
+    let sig = read_signature(&sig_path).unwrap();
+    assert_eq!(sig.format(), SignatureFormat::V1);
+    assert_eq!(sig.signer(), None);
+    sig.verify(&pk, &file).unwrap();
+}
+
+#[test]
+fn test_signature_unknown_suite_is_rejected() {
+    let (_dir, file, sig_path) = signed_test_file();
+    let (sk, _) = KeyPair::new().into_parts();
+    write_signature(&sig_path, &sk.sign(&file, "comment").unwrap()).unwrap();
+
+    let mut data = std::fs::read(&sig_path).unwrap();
+    data[14] = 0x7F;
+    std::fs::write(&sig_path, &data).unwrap();
+
+    let msg = invalid_format_message(read_signature(&sig_path));
+    assert!(msg.contains("algorithm suite 0x7f"), "got: {msg}");
+}
+
+#[test]
+fn test_signature_v2_rejects_trailing_data() {
+    let (_dir, file, sig_path) = signed_test_file();
+    let (sk, _) = KeyPair::new().into_parts();
+    write_signature(&sig_path, &sk.sign(&file, "comment").unwrap()).unwrap();
+
+    let mut data = std::fs::read(&sig_path).unwrap();
+    data.extend_from_slice(b"extra");
+    std::fs::write(&sig_path, &data).unwrap();
+
+    let msg = invalid_format_message(read_signature(&sig_path));
+    assert!(msg.contains("unexpected data"), "got: {msg}");
+}
+
+/// Changing the version byte must never turn a signature of one format into a valid one of the other.
+#[test]
+fn test_signature_relabelled_version_does_not_verify() {
+    use crate::domain::SignatureFormat;
+
+    let (_dir, file, sig_path) = signed_test_file();
+    let (sk, pk) = KeyPair::new().into_parts();
+
+    for (format, relabel) in [(SignatureFormat::V2, 1u8), (SignatureFormat::V1, 2u8)] {
+        write_signature(&sig_path, &sk.sign_as(&file, "comment", format).unwrap()).unwrap();
+        let mut data = std::fs::read(&sig_path).unwrap();
+        data[4] = relabel;
+        std::fs::write(&sig_path, &data).unwrap();
+
+        let result = read_signature(&sig_path).and_then(|sig| sig.verify(&pk, &file));
+        assert!(result.is_err(), "{format} signature relabelled as v{relabel} verified");
+    }
+}
+
+#[test]
+fn test_header_rejects_version_zero() {
+    let data = b"PQSN\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00";
+    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(data.as_slice())));
+    assert!(msg.contains("version 0"), "got: {msg}");
+}
+
+/// Each file type has its own newest version: v2 is fine for signatures but too new for keys.
+#[test]
+fn test_header_versions_are_per_file_type() {
+    let key_v2 = b"PQSN\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00";
+    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(key_v2.as_slice())));
+    assert!(msg.contains("requires pqsign format v2, this build supports v1"), "got: {msg}");
+
+    let sig_v2 = b"PQSN\x02\x03\x00\x00\x00\x00\x00\x00\x00\x00";
+    assert_eq!(FileHeader::read(&mut Cursor::new(sig_v2.as_slice())).unwrap().version, 2);
+
+    let sig_v3 = b"PQSN\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00";
+    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(sig_v3.as_slice())));
+    assert!(msg.contains("requires pqsign format v3, this build supports v2"), "got: {msg}");
+}
