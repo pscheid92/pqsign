@@ -135,6 +135,7 @@ All binary files start with magic bytes `PQSN`, a format version, and an 8-byte 
 - [Benchmarks](docs/benchmarks.md) — performance of library and CLI operations
 - [Brute-force resistance](docs/brute-force-resistance.md) — password cracking analysis with CPU and GPU estimates
 - [KDF comparison](docs/kdf-comparison.md) — Argon2id parameter trade-offs
+- [Releasing](docs/releasing.md) — how releases are built, signed, verified and published
 
 ## License
 
