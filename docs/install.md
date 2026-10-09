@@ -81,3 +81,13 @@ Fingerprint: BLAKE2b-256:tgolgaKRfSGSvflaZqCjVtX+YXy6I+/tgvAbOW/npIc
 ```
 
 `verify` prints the fingerprint of the key it used, too. Compare the whole fingerprint rather than the key ID or the start of the key string: another key can carry the same key ID and share its first characters. pqsign 0.1 does not show fingerprints; compare the downloaded `release.key.pub` with the copy in this repository instead.
+
+### Check where a binary was built
+
+Releases after 0.1.1 also carry a build provenance attestation for each archive: a record of the workflow run, commit and tag that built it, signed through [Sigstore](https://www.sigstore.dev/) and stored by GitHub. Check it with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify pqsign-x86_64-unknown-linux-gnu.tar.gz --repo pscheid92/pqsign --signer-workflow pscheid92/pqsign/.github/workflows/release.yml
+```
+
+It complements the pqsign signature rather than replacing it. The attestation is signed with a short-lived certificate that Sigstore issued to the release workflow, so it shows where the archive was built. The `.pqsig` file shows that the release key signed it.
