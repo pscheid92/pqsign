@@ -16,14 +16,18 @@ Extract and place the binary somewhere in your `$PATH`.
 
 ## Build from source
 
+From crates.io:
+
 ```bash
-cargo install --path .
+cargo install --locked pqsign
 ```
 
-Or from crates.io (once published):
+`--locked` builds with the exact dependency versions pqsign was tested and released with. Cargo builds from the source published on crates.io; the pqsign signatures described below cover the prebuilt archives only.
+
+Or from a checkout of this repository:
 
 ```bash
-cargo install pqsign
+cargo install --locked --path .
 ```
 
 BSD and other platforms can build from source — the only requirement is Rust 1.88 or newer.

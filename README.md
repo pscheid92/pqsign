@@ -6,10 +6,10 @@ Both signatures must verify for a file to be considered authentic. This provides
 
 ## Install
 
-Download a prebuilt binary from the [latest release](https://github.com/pscheid92/pqsign/releases/latest), or build from source:
+Download a prebuilt binary from the [latest release](https://github.com/pscheid92/pqsign/releases/latest), or build from source with Cargo:
 
 ```bash
-cargo install --path .
+cargo install --locked pqsign
 ```
 
 All release binaries are signed with pqsign itself. The release signing key [`release.key.pub`](release.key.pub) has this fingerprint:
