@@ -46,7 +46,7 @@ fn test_fingerprint_is_stable() {
 /// The published crate excludes the release key and `docs/`, so the test skips itself there.
 #[test]
 fn test_docs_publish_the_release_key_fingerprint() {
-    let docs = ["README.md", "docs/install.md"];
+    let docs = ["README.md", "docs/install.md", "SECURITY.md"];
     if !repo("release.key.pub").exists() || docs.iter().any(|doc| !repo(doc).exists()) {
         eprintln!("skipped: the release key or the docs are not part of this checkout");
         return;
