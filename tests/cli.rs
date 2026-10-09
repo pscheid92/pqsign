@@ -1144,3 +1144,55 @@ fn test_cli_inspect_reports_both_files_when_neither_is_pqsign() {
         "{notes} is not a pqsign file, and {notes}.pqsig does not exist"
     )));
 }
+
+// -- file names that are not valid UTF-8 --
+
+/// Two files whose names differ only in a byte that is not valid UTF-8 used to share one signature file.
+/// Linux allows such names; macOS's APFS rejects them, so the test skips itself there.
+#[cfg(unix)]
+#[test]
+fn test_cli_signs_files_whose_names_are_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join(OsStr::from_bytes(b"caf\xe9.txt"));
+    let second = dir.path().join(OsStr::from_bytes(b"caf\xe8.txt"));
+    if fs::write(&first, b"first").is_err() {
+        eprintln!("skipped: this file system rejects file names that are not valid UTF-8");
+        return;
+    }
+    fs::write(&second, b"second").unwrap();
+
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    generate_key(&sk);
+
+    let cases = [
+        (&first, &b"caf\xe9.txt.pqsig"[..], "file:caf\\xe9.txt"),
+        (&second, &b"caf\xe8.txt.pqsig"[..], "file:caf\\xe8.txt"),
+    ];
+    for (file, _, _) in cases {
+        cmd()
+            .arg("sign")
+            .arg(file)
+            .args(["-s", sk.to_str().unwrap(), "--password-stdin"])
+            .write_stdin("test-pw\n")
+            .assert()
+            .success();
+    }
+    for (file, signature, comment) in cases {
+        assert!(
+            dir.path().join(OsStr::from_bytes(signature)).exists(),
+            "missing {}",
+            signature.escape_ascii()
+        );
+        cmd()
+            .arg("verify")
+            .arg(file)
+            .args(["-p", pk.to_str().unwrap()])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(comment));
+    }
+}

@@ -698,3 +698,27 @@ fn test_header_versions_are_per_file_type() {
     let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(sig_v3.as_slice())));
     assert!(msg.contains("requires pqsign format v3, this build supports v2"), "got: {msg}");
 }
+
+// -- File names in trusted comments --
+
+#[test]
+fn test_escape_file_name_keeps_valid_names() {
+    use std::ffi::OsStr;
+
+    assert_eq!(escape_file_name(OsStr::new("Bericht für März.pdf")), "Bericht für März.pdf");
+    assert_eq!(escape_file_name(OsStr::new("a\tb\\c")), "a\\tb\\\\c");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_escape_file_name_keeps_invalid_bytes_distinct() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = |bytes: &[u8]| escape_file_name(OsStr::from_bytes(bytes));
+    assert_eq!(name(b"caf\xe9.txt"), "caf\\xe9.txt");
+    assert_ne!(name(b"caf\xe9.txt"), name(b"caf\xe8.txt"));
+    // A literal backslash is doubled, so it can never look like an escaped byte.
+    assert_eq!(name(b"caf\\xe9.txt"), "caf\\\\xe9.txt");
+    check_trusted_comment(&name(b"caf\xe9\t\x1b.txt")).unwrap();
+}

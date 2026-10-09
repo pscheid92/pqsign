@@ -5,6 +5,7 @@
 //! directory, which is synced and then renamed over the destination. A crash or failure at any
 //! point leaves either the old file or the new one, never a partial write.
 
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -130,8 +131,9 @@ fn create_dir_all(dir: &Path) -> io::Result<()> {
 
 /// A temporary file next to `dest`, named after it so a file left behind by a killed process is recognizable.
 fn temp_file_in(dir: &Path, dest: &Path, access: Access) -> io::Result<NamedTempFile> {
-    let name = dest.file_name().unwrap_or(dest.as_os_str()).to_string_lossy();
-    let prefix = format!(".{name}.");
+    let mut prefix = OsString::from(".");
+    prefix.push(dest.file_name().unwrap_or(dest.as_os_str()));
+    prefix.push(".");
 
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix).suffix(".tmp");
