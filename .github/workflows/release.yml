@@ -44,6 +44,8 @@ jobs:
 
   ci:
     uses: ./.github/workflows/ci.yml
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
   build:
     needs: [version, ci]
