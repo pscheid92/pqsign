@@ -2,7 +2,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use super::{FileHeader, FileType};
+use super::{FileHeader, FileType, file};
 use crate::domain::*;
 use crate::errors::{Error, IoContext};
 
@@ -16,7 +16,7 @@ pub fn write(path: &Path, sig: &Signature) -> Result<(), Error> {
 }
 
 pub fn read(path: &Path) -> Result<Signature, Error> {
-    let data = fs::read(path).io_context(path)?;
+    let data = file::read(path)?;
     decode(&data)
 }
 
@@ -36,7 +36,7 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
     Ok(buf)
 }
 
-fn decode(data: &[u8]) -> Result<Signature, Error> {
+pub(super) fn decode(data: &[u8]) -> Result<Signature, Error> {
     let mut r = Cursor::new(data);
 
     let header = FileHeader::read(&mut r)?;

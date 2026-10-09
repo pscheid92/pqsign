@@ -12,7 +12,9 @@ pub use header::{FileHeader, FileType};
 pub use inspect::{FileInfo, inspect_file};
 pub use kdf::Kdf;
 pub use key_pair::write_key_pair;
-pub use public_key::{read as read_public_key, read_from_string as read_public_key_string, write as write_public_key};
+pub use public_key::{
+    encode_text as encode_public_key, read as read_public_key, read_from_string as read_public_key_string, write as write_public_key,
+};
 pub use secret_key::{read as read_secret_key, read_with as read_secret_key_with, write as write_secret_key};
 pub use signature::{read as read_signature, write as write_signature};
 

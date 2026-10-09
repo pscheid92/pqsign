@@ -575,3 +575,83 @@ fn test_cli_sign_warns_about_key_accessible_by_others() {
     fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
     sign().stderr(predicates::str::contains("is accessible by other users (mode 0644)").and(predicates::str::contains("chmod 600")));
 }
+
+// -- bounded reads --
+
+#[test]
+fn test_cli_inspect_large_file_falls_back_to_pqsig() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("data.bin");
+    let sig = dir.path().join("data.bin.pqsig");
+
+    fs::write(&file, vec![0u8; 1024 * 1024]).unwrap();
+    generate_key(&sk);
+    sign_file(&file, &sk, &sig);
+
+    cmd()
+        .args(["inspect", file.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Signature"))
+        .stderr(predicates::str::contains("inspecting"));
+
+    fs::remove_file(&sig).unwrap();
+    cmd()
+        .args(["inspect", file.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("data.bin.pqsig"));
+}
+
+/// Readers must stop after a few kilobytes instead of reading an endless device until memory runs out.
+#[cfg(unix)]
+#[test]
+fn test_cli_readers_stop_on_endless_input() {
+    let timeout = std::time::Duration::from_secs(30);
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    sign_file(&file, &sk, &sig);
+
+    cmd()
+        .args(["inspect", "/dev/zero"])
+        .timeout(timeout)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("/dev/zero.pqsig"));
+
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", "/dev/zero"])
+        .timeout(timeout)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("larger than 64 KiB"));
+
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", "/dev/zero", "-x", sig.to_str().unwrap()])
+        .timeout(timeout)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("larger than 64 KiB"));
+
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            "/dev/zero",
+            "-x",
+            sig.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin("test-pw\n")
+        .timeout(timeout)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("larger than 64 KiB"));
+}
