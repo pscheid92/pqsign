@@ -13,6 +13,16 @@ Releases are built, signed and published by the [release workflow](../.github/wo
    git push origin vX.Y.Z
    ```
 
+4. After the release, update the Homebrew cask, [`Casks/pqsign.rb`](https://github.com/pscheid92/homebrew-tap/blob/main/Casks/pqsign.rb) in pscheid92/homebrew-tap: the version, and the checksums of the four macOS and Linux archives. Take the checksums from downloaded archives whose signatures verify:
+
+   ```bash
+   gh release download vX.Y.Z --pattern '*.tar.gz*' --dir /tmp/pqsign-vX.Y.Z
+   for archive in /tmp/pqsign-vX.Y.Z/*.tar.gz; do pqsign verify "$archive" -p release.key.pub; done
+   shasum -a 256 /tmp/pqsign-vX.Y.Z/*.tar.gz
+   ```
+
+   Nothing updates the cask automatically, because pqsign does not use GoReleaser.
+
 ## What the workflow does
 
 Each step only runs if the previous one succeeded:
