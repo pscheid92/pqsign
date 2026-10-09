@@ -49,11 +49,12 @@ impl fmt::Display for FileInfo {
                     }
                 }
             }
+            // inspect never checks the signature, so the comment is shown as unverified.
             FileInfo::Signature { key_id, trusted_comment } => {
-                writeln!(f, "Type:            Signature")?;
-                writeln!(f, "Key ID:          {key_id}")?;
-                writeln!(f, "Algorithms:      Ed25519 + ML-DSA-65")?;
-                write!(f, "Trusted comment: {trusted_comment}")
+                writeln!(f, "Type:                 Signature")?;
+                writeln!(f, "Key ID:               {key_id}")?;
+                writeln!(f, "Algorithms:           Ed25519 + ML-DSA-65")?;
+                write!(f, "Comment (unverified): {trusted_comment}")
             }
         }
     }

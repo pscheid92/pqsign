@@ -54,6 +54,8 @@ pqsign sign document.pdf -t "release v1.0"       # custom trusted comment
 pqsign sign document.pdf -x document.pdf.sig      # custom signature path
 ```
 
+Every signature carries a trusted comment: the signing time and the file's name, followed by your `-t` text. It is limited to 1024 bytes and may not contain control characters other than tab.
+
 ### Non-interactive use
 
 `generate` and `sign` prompt for the secret key password on the terminal. Scripts and CI pass it explicitly instead:
