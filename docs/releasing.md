@@ -18,12 +18,14 @@ Releases are built, signed and published by the [release workflow](../.github/wo
 Each step only runs if the previous one succeeded:
 
 1. Checks that the tag matches the version in `Cargo.toml`.
-2. Runs the full CI suite: tests on Linux, macOS and Windows, clippy, rustfmt and actionlint.
+2. Runs the full CI suite: tests on Linux, macOS and Windows, tests with the minimum supported Rust version, clippy, rustfmt, actionlint, and `cargo audit` for dependencies with known vulnerabilities.
 3. Builds the five release targets with `--locked`.
 4. Signs every archive twice: `.pqsig` in the current format, and `.v1.pqsig` for pqsign 0.1, which cannot read format v2.
 5. Verifies every signature against the committed `release.key.pub`. A release secret that does not match the committed key fails here.
 6. Creates the GitHub release with the archives and signatures.
 7. Publishes the crate to crates.io, last, because a published version can never be replaced.
+
+A failing audit blocks the release. CI also runs every Monday, so a new advisory usually shows up before release day. Update the affected dependency, or, if the advisory does not affect pqsign, add its ID to `ignore` under `[advisories]` in `.cargo/audit.toml` with a comment saying why.
 
 ## Dry runs
 
