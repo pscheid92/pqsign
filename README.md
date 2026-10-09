@@ -6,7 +6,13 @@ Both signatures must verify for a file to be considered authentic. This provides
 
 ## Install
 
-Download a prebuilt binary from the [latest release](https://github.com/pscheid92/pqsign/releases/latest), or build from source with Cargo:
+With Homebrew on macOS or Linux:
+
+```bash
+brew install pscheid92/tap/pqsign
+```
+
+Or download a prebuilt binary from the [latest release](https://github.com/pscheid92/pqsign/releases/latest), or build from source with Cargo:
 
 ```bash
 cargo install --locked pqsign

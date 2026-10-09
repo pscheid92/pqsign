@@ -1,5 +1,17 @@
 # Install
 
+## Homebrew
+
+On macOS and Linux:
+
+```bash
+brew install pscheid92/tap/pqsign
+```
+
+The [cask](https://github.com/pscheid92/homebrew-tap/blob/main/Casks/pqsign.rb) installs the prebuilt release archive for your platform. Homebrew checks the download against the checksum in the cask, not against the pqsign signature. To check the signature too, download the archive and follow [Verify release binaries](#verify-release-binaries). The macOS binaries are not notarized, so the cask removes the quarantine flag that would make Gatekeeper block them.
+
+`brew upgrade pqsign` installs new releases.
+
 ## Prebuilt binaries
 
 Download the latest release for your platform from [GitHub Releases](https://github.com/pscheid92/pqsign/releases/latest):
