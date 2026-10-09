@@ -55,8 +55,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Pulled through Google's Docker Hub mirror: GitHub's runners share IP addresses, so anonymous pulls from
+      # Docker Hub itself regularly hit its rate limit. The digest pins the same image on either registry.
       # Dependabot does not update docker:// references; bump this digest by hand with new actionlint releases.
       - name: Lint workflows
-        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        uses: docker://mirror.gcr.io/rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
         with:
           args: -color
