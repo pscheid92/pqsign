@@ -1,18 +1,52 @@
 name: Release
 
+# A pushed version tag makes a real release. Every other trigger is a dry run: the full pipeline, but
+# signed with a throwaway key and without creating the GitHub release or publishing the crate.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/ci.yml
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
+  DRY_RUN: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
 
+# Actions are pinned to commit SHAs; Dependabot keeps them current (.github/dependabot.yml).
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check that the tag matches Cargo.toml
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "pqsign") | .version')
+          echo "Cargo.toml version: $version"
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$version" ]; then
+            echo "::error::tag $REF_NAME does not match the Cargo.toml version $version"
+            exit 1
+          fi
+
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: [version, ci]
     strategy:
       matrix:
         include:
@@ -36,10 +70,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Install cross-compilation tools
@@ -47,14 +82,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
@@ -66,52 +101,121 @@ jobs:
         run: Compress-Archive -Path target/${{ matrix.target }}/release/pqsign.exe -DestinationPath pqsign-${{ matrix.target }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pqsign-${{ matrix.target }}
           path: pqsign-${{ matrix.target }}.${{ matrix.archive }}
 
-  sign-and-release:
+  sign:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v8
+      # For release.key.pub, which every signature is verified against.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: pqsign-*
           path: artifacts
           merge-multiple: true
 
-      - name: Extract signing binary
+      - name: Use the freshly built pqsign
         run: |
-          tar xzf artifacts/pqsign-x86_64-unknown-linux-gnu.tar.gz -C /usr/local/bin
-          chmod +x /usr/local/bin/pqsign
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar xzf artifacts/pqsign-x86_64-unknown-linux-gnu.tar.gz -C "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - name: Decode signing key
-        run: echo "${{ secrets.PQSIGN_SECRET_KEY }}" | base64 -d > /tmp/release.key
-
-      - name: Sign release archives
+      - name: Prepare the release key
+        if: env.DRY_RUN == 'false'
         env:
+          PQSIGN_SECRET_KEY: ${{ secrets.PQSIGN_SECRET_KEY }}
           PQSIGN_PASSWORD: ${{ secrets.PQSIGN_PASSWORD }}
         run: |
-          # .pqsig is the current format; .v1.pqsig lets pqsign 0.1 verify the release it upgrades to.
+          umask 077
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$PQSIGN_SECRET_KEY" | base64 -d > "$RUNNER_TEMP/signing/release.key"
+          printf '%s\n' "$PQSIGN_PASSWORD" > "$RUNNER_TEMP/signing/password"
+          echo "VERIFY_KEY=release.key.pub" >> "$GITHUB_ENV"
+
+      # Dry runs never touch the release key or its password.
+      - name: Prepare a throwaway key
+        if: env.DRY_RUN == 'true'
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/signing"
+          openssl rand -hex 32 > "$RUNNER_TEMP/signing/password"
+          pqsign generate -s "$RUNNER_TEMP/signing/release.key" --password-file "$RUNNER_TEMP/signing/password"
+          echo "VERIFY_KEY=$RUNNER_TEMP/signing/release.key.pub" >> "$GITHUB_ENV"
+
+      # .pqsig is the current format; .v1.pqsig lets pqsign 0.1 verify the release it upgrades to.
+      - name: Sign archives
+        run: |
+          key="$RUNNER_TEMP/signing/release.key"
+          password="$RUNNER_TEMP/signing/password"
           for archive in artifacts/*; do
-            printf '%s\n' "$PQSIGN_PASSWORD" | pqsign sign "$archive" -s /tmp/release.key --password-stdin
-            printf '%s\n' "$PQSIGN_PASSWORD" | pqsign sign "$archive" -s /tmp/release.key --password-stdin --format v1 -x "$archive.v1.pqsig"
+            pqsign sign "$archive" -s "$key" --password-file "$password"
+            pqsign sign "$archive" -s "$key" --password-file "$password" --format v1 -x "$archive.v1.pqsig"
           done
 
-      - name: Shred signing key
+      # Only the secret parts; a dry run still needs its throwaway public key to verify.
+      - name: Remove the signing key
         if: always()
-        run: shred -u /tmp/release.key 2>/dev/null || rm -f /tmp/release.key
+        run: |
+          secrets=("$RUNNER_TEMP/signing/release.key" "$RUNNER_TEMP/signing/password")
+          shred -u "${secrets[@]}" 2>/dev/null || rm -f "${secrets[@]}"
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+      # A release secret that does not match release.key.pub fails here, before anything is published.
+      - name: Verify signatures
+        run: |
+          pqsign inspect "$VERIFY_KEY"
+          for archive in artifacts/*.tar.gz artifacts/*.zip; do
+            pqsign verify "$archive" -p "$VERIFY_KEY"
+            pqsign verify "$archive" -p "$VERIFY_KEY" -x "$archive.v1.pqsig"
+          done
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-release
+          path: artifacts/
+
+  github-release:
+    needs: sign
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-release
+          path: artifacts
+
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
-          files: |
-            artifacts/*
+          files: artifacts/*
 
+  # Last, because a published crate version can never be replaced.
   publish:
+    needs: github-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: stable
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  publish-dry-run:
+    needs: sign
+    if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: stable
+      - run: cargo publish --dry-run --locked

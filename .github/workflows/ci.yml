@@ -5,10 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # The release workflow runs this whole suite before building a release.
+  workflow_call:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
+# Actions are pinned to commit SHAs; Dependabot keeps them current (.github/dependabot.yml).
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -17,26 +23,40 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --locked
 
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
         with:
+          toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo clippy --locked --all-targets -- -D warnings
 
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
         with:
+          toolchain: stable
           components: rustfmt
       - run: cargo fmt --check
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Dependabot does not update docker:// references; bump this digest by hand with new actionlint releases.
+      - name: Lint workflows
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # 1.7.12
+        with:
+          args: -color
