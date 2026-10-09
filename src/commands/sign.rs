@@ -66,8 +66,7 @@ fn warn_if_accessible_by_others(secret_key_path: &Path) {
 /// names cannot break the comment's rules or add fields.
 fn build_trusted_comment(file: &Path, comment: Option<&str>) -> String {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let name = file.file_name().map_or_else(|| file.to_string_lossy(), |name| name.to_string_lossy());
-    let name = format::escape_comment_field(&name);
+    let name = format::escape_file_name(file.file_name().unwrap_or(file.as_os_str()));
 
     match comment {
         Some(c) => format!("timestamp:{ts}\tfile:{name}\t{c}"),

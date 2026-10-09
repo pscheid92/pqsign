@@ -28,11 +28,17 @@ pub fn resolve_key_path(path: Option<PathBuf>, default_filename: &str) -> Result
 }
 
 pub fn resolve_signature_path(sig_file: Option<PathBuf>, file: &Path) -> Result<PathBuf, Error> {
-    let path = sig_file
-        .map(expand_tilde)
-        .unwrap_or_else(|| PathBuf::from(format!("{}{SIG_FILE_EXTENSION}", file.display())));
+    let path = sig_file.map(expand_tilde).unwrap_or_else(|| with_suffix(file, SIG_FILE_EXTENSION));
     validate_file_path(&path)?;
     Ok(path)
+}
+
+/// Appends `suffix` to the whole path. Works on the raw OS string, so a name that is not valid UTF-8 keeps its
+/// exact bytes instead of having them replaced by U+FFFD, which could make two names collide.
+pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 fn expand_tilde(path: PathBuf) -> PathBuf {
@@ -113,6 +119,32 @@ mod tests {
         let path = resolve_signature_path(Some(PathBuf::from("~/sigs/my.pqsig")), Path::new("data.txt")).unwrap();
         let expected = home::home_dir().unwrap().join("sigs/my.pqsig");
         assert_eq!(path, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_signature_path_keeps_non_utf8_bytes() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let first = resolve_signature_path(None, Path::new(OsStr::from_bytes(b"caf\xe9.txt"))).unwrap();
+        let second = resolve_signature_path(None, Path::new(OsStr::from_bytes(b"caf\xe8.txt"))).unwrap();
+
+        assert_eq!(first.as_os_str().as_bytes(), b"caf\xe9.txt.pqsig");
+        assert_ne!(first, second, "different files must not share a signature file");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_signature_path_keeps_unpaired_surrogates() {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        let name: Vec<u16> = "caf".encode_utf16().chain([0xD800]).chain(".txt".encode_utf16()).collect();
+        let signature = resolve_signature_path(None, &PathBuf::from(OsString::from_wide(&name))).unwrap();
+
+        let expected: Vec<u16> = name.iter().copied().chain(".pqsig".encode_utf16()).collect();
+        assert_eq!(signature.as_os_str().encode_wide().collect::<Vec<_>>(), expected);
     }
 
     #[test]

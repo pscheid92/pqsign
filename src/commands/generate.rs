@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::util::resolve_key_path;
+use super::util::{resolve_key_path, with_suffix};
 use crate::domain::KeyPair;
 use crate::errors::Error;
 use crate::format;
@@ -45,7 +45,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
 fn resolve_paths(secret_key: Option<PathBuf>) -> Result<(PathBuf, PathBuf), Error> {
     let secret_key_path = resolve_key_path(secret_key, "default.key")?;
-    let public_key_path = PathBuf::from(format!("{}.pub", secret_key_path.display()));
+    let public_key_path = with_suffix(&secret_key_path, ".pub");
     Ok((secret_key_path, public_key_path))
 }
 
@@ -54,4 +54,19 @@ fn check_not_exists(path: &Path) -> Result<(), Error> {
         return Err(Error::FileExists(path.to_path_buf()));
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    use super::*;
+
+    #[test]
+    fn test_public_key_path_keeps_non_utf8_bytes() {
+        let (secret, public) = resolve_paths(Some(PathBuf::from(OsStr::from_bytes(b"k\xe9y.key")))).unwrap();
+        assert_eq!(secret.as_os_str().as_bytes(), b"k\xe9y.key");
+        assert_eq!(public.as_os_str().as_bytes(), b"k\xe9y.key.pub");
+    }
 }

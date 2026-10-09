@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
@@ -47,6 +48,20 @@ pub fn write(path: &Path, sig: &Signature) -> Result<(), Error> {
 pub fn read(path: &Path) -> Result<Signature, Error> {
     let data = file::read(path)?;
     decode(&data)
+}
+
+/// Makes a file name safe to embed as a trusted comment field. Valid UTF-8 is escaped like
+/// [`escape_comment_field`]; bytes that are not valid UTF-8 are written as `\xNN`, so different names stay
+/// different instead of all turning into U+FFFD.
+pub fn escape_file_name(name: &OsStr) -> String {
+    let mut escaped = String::with_capacity(name.len());
+    for chunk in name.as_encoded_bytes().utf8_chunks() {
+        escaped.push_str(&escape_comment_field(chunk.valid()));
+        for byte in chunk.invalid() {
+            escaped.push_str(&format!("\\x{byte:02x}"));
+        }
+    }
+    escaped
 }
 
 // -- Helpers --
