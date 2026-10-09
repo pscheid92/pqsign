@@ -8,15 +8,23 @@ fn cmd() -> Command {
 
 fn generate_key(sk: &std::path::Path) {
     cmd()
-        .args(["generate", "-s", sk.to_str().unwrap()])
-        .write_stdin("test-pw\ntest-pw\n")
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("test-pw\n")
         .assert()
         .success();
 }
 
 fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path) {
     cmd()
-        .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+            "--password-stdin",
+        ])
         .write_stdin("test-pw\n")
         .assert()
         .success();
@@ -37,8 +45,8 @@ fn test_cli_generate() {
     let sk = dir.path().join("test.key");
 
     cmd()
-        .args(["generate", "-s", sk.to_str().unwrap()])
-        .write_stdin("mypass\nmypass\n")
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("mypass\n")
         .assert()
         .success()
         .stderr(predicates::str::contains("Key ID:"));
@@ -54,8 +62,8 @@ fn test_cli_generate_refuses_overwrite() {
     fs::write(&sk, b"").unwrap();
 
     cmd()
-        .args(["generate", "-s", sk.to_str().unwrap()])
-        .write_stdin("pw\npw\n")
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("pw\n")
         .assert()
         .failure()
         .stderr(predicates::str::contains("already exists"));
@@ -70,8 +78,8 @@ fn test_cli_generate_overwrite() {
     fs::write(&pk, b"old").unwrap();
 
     cmd()
-        .args(["generate", "-s", sk.to_str().unwrap(), "--overwrite"])
-        .write_stdin("pw\npw\n")
+        .args(["generate", "-s", sk.to_str().unwrap(), "--overwrite", "--password-stdin"])
+        .write_stdin("pw\n")
         .assert()
         .success();
 
@@ -184,7 +192,7 @@ fn test_cli_sign_nonexistent_file() {
     generate_key(&sk);
 
     cmd()
-        .args(["sign", "/no/such/file.txt", "-s", sk.to_str().unwrap()])
+        .args(["sign", "/no/such/file.txt", "-s", sk.to_str().unwrap(), "--password-stdin"])
         .write_stdin("test-pw\n")
         .assert()
         .failure()
@@ -212,6 +220,7 @@ fn test_cli_sign_with_custom_comment() {
             sig.to_str().unwrap(),
             "-t",
             "release v2.0",
+            "--password-stdin",
         ])
         .write_stdin("test-pw\n")
         .assert()
@@ -235,8 +244,8 @@ fn test_cli_generate_force_alias() {
     fs::write(&pk, b"old").unwrap();
 
     cmd()
-        .args(["generate", "-s", sk.to_str().unwrap(), "--force"])
-        .write_stdin("pw\npw\n")
+        .args(["generate", "-s", sk.to_str().unwrap(), "--force", "--password-stdin"])
+        .write_stdin("pw\n")
         .assert()
         .success();
 
@@ -329,7 +338,7 @@ fn test_cli_sign_nonexistent_file_error_message() {
     generate_key(&sk);
 
     cmd()
-        .args(["sign", "/no/such/file.txt", "-s", sk.to_str().unwrap()])
+        .args(["sign", "/no/such/file.txt", "-s", sk.to_str().unwrap(), "--password-stdin"])
         .write_stdin("test-pw\n")
         .assert()
         .failure()
@@ -353,4 +362,179 @@ fn test_cli_inspect_fallback_to_pqsig() {
         .success()
         .stdout(predicates::str::contains("Signature"))
         .stderr(predicates::str::contains("inspecting"));
+}
+
+// -- password sources --
+
+fn generate_key_with_stdin_password(sk: &std::path::Path, password: &str) -> assert_cmd::assert::Assert {
+    cmd()
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin(password)
+        .assert()
+}
+
+fn sign_with_stdin_password(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path, password: &str) -> assert_cmd::assert::Assert {
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+            "--password-stdin",
+        ])
+        .write_stdin(password)
+        .assert()
+}
+
+#[test]
+fn test_cli_password_file_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let pw_file = dir.path().join("password.txt");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+
+    fs::write(&pw_file, "file-pw\r\nsecond line is ignored\n").unwrap();
+    fs::write(&file, b"data").unwrap();
+
+    cmd()
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-file", pw_file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "-x",
+            sig.to_str().unwrap(),
+            "--password-file",
+            pw_file.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .assert()
+        .success();
+
+    // The key was encrypted with exactly "file-pw": neither the line ending nor the second line were part of it.
+    sign_with_stdin_password(&file, &sk, &sig, "file-pw\n").success();
+}
+
+#[test]
+fn test_cli_password_stdin_preserves_trailing_whitespace() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+
+    generate_key_with_stdin_password(&sk, "pw \n").success();
+
+    sign_with_stdin_password(&file, &sk, &sig, "pw\n")
+        .failure()
+        .stderr(predicates::str::contains("wrong password"));
+    sign_with_stdin_password(&file, &sk, &sig, "pw \n").success();
+}
+
+#[test]
+fn test_cli_password_stdin_reads_first_line_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+
+    generate_key_with_stdin_password(&sk, "pw\nsecond line\n").success();
+    sign_with_stdin_password(&file, &sk, &sig, "pw\n").success();
+}
+
+#[test]
+fn test_cli_password_stdin_without_line_ending() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+
+    generate_key_with_stdin_password(&sk, "pw").success();
+    sign_with_stdin_password(&file, &sk, &sig, "pw\r\n").success();
+}
+
+#[test]
+fn test_cli_password_stdin_empty_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+
+    generate_key_with_stdin_password(&sk, "")
+        .failure()
+        .stderr(predicates::str::contains("password cannot be empty"));
+    generate_key_with_stdin_password(&sk, "\n")
+        .failure()
+        .stderr(predicates::str::contains("password cannot be empty"));
+
+    assert!(!sk.exists());
+}
+
+#[test]
+fn test_cli_password_flags_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+
+    cmd()
+        .args([
+            "generate",
+            "-s",
+            sk.to_str().unwrap(),
+            "--password-stdin",
+            "--password-file",
+            "password.txt",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_cli_password_file_missing_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+
+    cmd()
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-file", "/no/such/password.txt"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("no such file"));
+}
+
+/// Without a terminal and without a password option, the command must fail with a hint instead of
+/// silently reading standard input. Only meaningful where no controlling terminal exists (CI, IDE
+/// test runners); skipped when run from an interactive shell.
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_without_terminal_requires_password_option() {
+    if fs::File::open("/dev/tty").is_ok() {
+        eprintln!("skipped: a controlling terminal is available");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+
+    cmd()
+        .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap()])
+        .write_stdin("test-pw\n")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--password-stdin"));
 }

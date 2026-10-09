@@ -1,15 +1,41 @@
 use std::path::PathBuf;
 use std::process;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use pqsign::commands::{generate, inspect, sign, verify};
 use pqsign::errors::Error;
+use pqsign::password::PasswordSource;
 
 fn main() {
     if let Err(e) = Cli::parse().run() {
         eprintln!("error: {e}");
         process::exit(1);
+    }
+}
+
+/// Where to get the secret key password from. Without either option, pqsign prompts on the terminal.
+#[derive(Args)]
+#[group(multiple = false)]
+struct PasswordArgs {
+    /// Read the password from the first line of standard input
+    #[arg(long)]
+    password_stdin: bool,
+
+    /// Read the password from the first line of a file
+    #[arg(long, value_name = "PATH")]
+    password_file: Option<PathBuf>,
+}
+
+impl From<PasswordArgs> for PasswordSource {
+    fn from(args: PasswordArgs) -> Self {
+        match args {
+            PasswordArgs { password_stdin: true, .. } => PasswordSource::Stdin,
+            PasswordArgs {
+                password_file: Some(path), ..
+            } => PasswordSource::File(path),
+            PasswordArgs { .. } => PasswordSource::Prompt,
+        }
     }
 }
 
@@ -24,6 +50,9 @@ enum Command {
         /// Overwrite existing key files
         #[arg(short = 'f', long, alias = "force")]
         overwrite: bool,
+
+        #[command(flatten)]
+        password: PasswordArgs,
     },
 
     /// Sign a file
@@ -41,6 +70,9 @@ enum Command {
         /// Trusted comment
         #[arg(short = 't', long = "trusted-comment")]
         trusted_comment: Option<String>,
+
+        #[command(flatten)]
+        password: PasswordArgs,
     },
 
     /// Verify a signature
@@ -96,9 +128,13 @@ struct Cli {
 impl Cli {
     fn run(self) -> Result<(), Error> {
         match self.command {
-            Command::Generate { secret_key, overwrite } => generate::run(generate::Options {
+            Command::Generate {
                 secret_key,
-                password: None,
+                overwrite,
+                password,
+            } => generate::run(generate::Options {
+                secret_key,
+                password: password.into(),
                 overwrite,
             }),
 
@@ -107,12 +143,13 @@ impl Cli {
                 secret_key,
                 sig_file,
                 trusted_comment,
+                password,
             } => sign::run(sign::Options {
                 file,
                 secret_key,
                 sig_file,
                 trusted_comment,
-                password: None,
+                password: password.into(),
             }),
 
             Command::Verify {

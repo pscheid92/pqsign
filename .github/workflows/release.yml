@@ -89,9 +89,11 @@ jobs:
         run: echo "${{ secrets.PQSIGN_SECRET_KEY }}" | base64 -d > /tmp/release.key
 
       - name: Sign release archives
+        env:
+          PQSIGN_PASSWORD: ${{ secrets.PQSIGN_PASSWORD }}
         run: |
           for archive in artifacts/*; do
-            echo "${{ secrets.PQSIGN_PASSWORD }}" | pqsign sign "$archive" -s /tmp/release.key
+            printf '%s\n' "$PQSIGN_PASSWORD" | pqsign sign "$archive" -s /tmp/release.key --password-stdin
           done
 
       - name: Shred signing key

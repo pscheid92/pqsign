@@ -54,6 +54,18 @@ pqsign sign document.pdf -t "release v1.0"       # custom trusted comment
 pqsign sign document.pdf -x document.pdf.sig      # custom signature path
 ```
 
+### Non-interactive use
+
+`generate` and `sign` prompt for the secret key password on the terminal. Scripts and CI pass it explicitly instead:
+
+```bash
+pqsign sign document.pdf --password-stdin <<< "$PQSIGN_PASSWORD"   # first line of stdin
+pqsign sign document.pdf --password-file ~/.pqsign/password        # first line of a file
+pqsign generate -s ci.key --password-file ~/.pqsign/password      # no confirmation prompt
+```
+
+The password is the first line of the input without its line ending; other whitespace is kept. `--password-stdin` is meant for pipes: on a terminal the typed password is echoed. Without a terminal and without one of these options, the command fails with an error instead of reading standard input.
+
 ### Verify a signature
 
 ```bash
