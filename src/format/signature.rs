@@ -3,6 +3,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use super::{FileHeader, FileType, file};
+use crate::domain::signature::{SUITE_ED25519_MLDSA65, Version};
 use crate::domain::*;
 use crate::errors::{Error, IoContext};
 
@@ -50,12 +51,27 @@ pub fn read(path: &Path) -> Result<Signature, Error> {
 
 // -- Helpers --
 
+/// v1: `header || Ed25519 signature || ML-DSA-65 signature || comment length (u32 LE) || comment`.
+/// v2 adds `suite || signer fingerprint` after the header.
 fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
     check_trusted_comment(&sig.trusted_comment)?;
     let comment_bytes = sig.trusted_comment.as_bytes();
 
     let mut buf = Vec::new();
-    FileHeader::new(FileType::Signature, sig.key_id).write_to(&mut buf)?;
+    let version = match sig.version {
+        Version::V1 => 1,
+        Version::V2 { .. } => 2,
+    };
+    FileHeader {
+        version,
+        file_type: FileType::Signature,
+        key_id: sig.key_id,
+    }
+    .write_to(&mut buf)?;
+    if let Version::V2 { signer } = sig.version {
+        super::write_u8(&mut buf, SUITE_ED25519_MLDSA65)?;
+        super::write_all(&mut buf, signer.as_bytes())?;
+    }
     sig.ed25519.write_to(&mut buf)?;
     sig.mldsa65.write_to(&mut buf)?;
     super::write_u32_le(&mut buf, comment_bytes.len() as u32)?;
@@ -72,6 +88,20 @@ pub(super) fn decode(data: &[u8]) -> Result<Signature, Error> {
         return Err(Error::InvalidFormat("expected signature file".into()));
     }
 
+    let version = match header.version {
+        1 => Version::V1,
+        2 => {
+            check_suite(super::read_u8(&mut r)?)?;
+            Version::V2 {
+                signer: Fingerprint(super::read_exact_array(&mut r)?),
+            }
+        }
+        other => {
+            let err = Error::InvalidFormat(format!("unsupported signature format v{other}"));
+            return Err(err);
+        }
+    };
+
     let ed25519 = Ed25519Signature::read_from(&mut r)?;
     let mldsa65 = MlDsa65Signature::read_from(&mut r)?;
 
@@ -82,12 +112,28 @@ pub(super) fn decode(data: &[u8]) -> Result<Signature, Error> {
     let trusted_comment = String::from_utf8(comment_bytes).map_err(|_| Error::InvalidFormat("trusted comment is not valid UTF-8".into()))?;
     check_trusted_comment(&trusted_comment)?;
 
+    // v2 files end with the comment; v1 files are read as leniently as pqsign 0.1 read them.
+    if matches!(version, Version::V2 { .. }) && r.position() as usize != data.len() {
+        let err = Error::InvalidFormat("unexpected data after the trusted comment".into());
+        return Err(err);
+    }
+
     Ok(Signature {
+        version,
         key_id: header.key_id,
         ed25519,
         mldsa65,
         trusted_comment,
     })
+}
+
+fn check_suite(suite: u8) -> Result<(), Error> {
+    if suite != SUITE_ED25519_MLDSA65 {
+        let msg = format!("unsupported algorithm suite 0x{suite:02x}; it requires a newer version of pqsign");
+        let err = Error::InvalidFormat(msg);
+        return Err(err);
+    }
+    Ok(())
 }
 
 fn check_comment_len(len: usize) -> Result<(), Error> {

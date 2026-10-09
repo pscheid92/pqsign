@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 use std::process;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use pqsign::commands::{generate, inspect, sign, verify};
+use pqsign::domain::SignatureFormat;
 use pqsign::errors::Error;
 use pqsign::password::PasswordSource;
 
@@ -39,6 +40,24 @@ impl From<PasswordArgs> for PasswordSource {
     }
 }
 
+/// Signature format to write.
+#[derive(Clone, Copy, ValueEnum)]
+enum FormatArg {
+    /// The current format
+    V2,
+    /// The format of pqsign 0.1, for verifiers that cannot read v2 yet
+    V1,
+}
+
+impl From<FormatArg> for SignatureFormat {
+    fn from(arg: FormatArg) -> Self {
+        match arg {
+            FormatArg::V2 => SignatureFormat::V2,
+            FormatArg::V1 => SignatureFormat::V1,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Generate a new key pair
@@ -70,6 +89,10 @@ enum Command {
         /// Trusted comment
         #[arg(short = 't', long = "trusted-comment")]
         trusted_comment: Option<String>,
+
+        /// Signature format
+        #[arg(long, value_enum, default_value_t = FormatArg::V2)]
+        format: FormatArg,
 
         #[command(flatten)]
         password: PasswordArgs,
@@ -143,6 +166,7 @@ impl Cli {
                 secret_key,
                 sig_file,
                 trusted_comment,
+                format,
                 password,
             } => sign::run(sign::Options {
                 file,
@@ -150,6 +174,7 @@ impl Cli {
                 sig_file,
                 trusted_comment,
                 password: password.into(),
+                format: format.into(),
             }),
 
             Command::Verify {

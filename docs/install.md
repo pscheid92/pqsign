@@ -30,7 +30,7 @@ BSD and other platforms can build from source — the only requirement is Rust 1
 
 ## Verify release binaries
 
-All release binaries are signed with pqsign itself. Each archive has a corresponding `.pqsig` signature file in the same release.
+All release binaries are signed with pqsign itself. Each archive has a corresponding `.pqsig` signature file in the same release, and a `.v1.pqsig` file for pqsign 0.1, which cannot read the newer signature format.
 
 The release signing public key is [`release.key.pub`](../release.key.pub) in the repository root.
 
@@ -43,6 +43,15 @@ curl -LO https://github.com/pscheid92/pqsign/releases/latest/download/pqsign-x86
 
 # Verify using the public key file
 pqsign verify pqsign-x86_64-unknown-linux-gnu.tar.gz -p release.key.pub
+```
+
+### With pqsign 0.1
+
+pqsign 0.1 rejects the current signature format with "file requires pqsign format v2". Verify the download with the `.v1.pqsig` file instead, then upgrade:
+
+```bash
+curl -LO https://github.com/pscheid92/pqsign/releases/latest/download/pqsign-x86_64-unknown-linux-gnu.tar.gz.v1.pqsig
+pqsign verify pqsign-x86_64-unknown-linux-gnu.tar.gz -p release.key.pub -x pqsign-x86_64-unknown-linux-gnu.tar.gz.v1.pqsig
 ```
 
 ### With the inline public key

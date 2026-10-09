@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use pqsign::domain::SignatureFormat;
 use pqsign::format;
 
 fn repo(path: &str) -> PathBuf {
@@ -16,7 +17,22 @@ fn test_v1_signature_fixture_verifies() {
     let sig = format::read_signature(&repo("tests/fixtures/v1/message.txt.pqsig")).unwrap();
 
     sig.verify(&pk, &repo("tests/fixtures/v1/message.txt")).unwrap();
+    assert_eq!(sig.format(), SignatureFormat::V1);
     assert!(sig.trusted_comment.ends_with("\tfile:message.txt\tv1 fixture"));
+}
+
+/// A v2 signature written when the format was introduced. Every later version must verify it.
+#[test]
+fn test_v2_signature_fixture_verifies() {
+    let pk = format::read_public_key(&repo("tests/fixtures/v2/signer.pub")).unwrap();
+    let sig = format::read_signature(&repo("tests/fixtures/v2/message.txt.pqsig")).unwrap();
+
+    sig.verify(&pk, &repo("tests/fixtures/v2/message.txt")).unwrap();
+    assert_eq!(sig.format(), SignatureFormat::V2);
+    assert_eq!(sig.signer(), Some(pk.fingerprint()));
+    assert_eq!(pk.key_id(), pk.fingerprint().key_id());
+    assert_eq!(pk.fingerprint().to_string(), "BLAKE2b-256:vaHlS1cT0OCY404qQT05a3qOUKN4SV0icxX4GbXfQHg");
+    assert!(sig.trusted_comment.ends_with("\tfile:message.txt\tv2 fixture"));
 }
 
 /// Fingerprints are published and compared by people, so the algorithm must never change silently.
