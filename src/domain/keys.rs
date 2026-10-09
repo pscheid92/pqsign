@@ -5,7 +5,7 @@ use ed25519_dalek::Signer;
 use fips204::ml_dsa_65;
 use fips204::traits::{KeyGen, SerDes, Signer as MlDsaSigner};
 use rand::Rng;
-use zeroize::ZeroizeOnDrop;
+use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 use super::signature::Signature;
 use super::types::*;
@@ -48,17 +48,18 @@ impl KeyPair {
     }
 
     fn gen_ed25519_keys(rng: &mut impl Rng) -> (ed25519::SigningKey, ed25519::VerifyingKey) {
-        let mut seed = [0u8; Self::ED25519_SEED_LEN];
-        rng.fill_bytes(&mut seed);
+        let mut seed = Zeroizing::new([0u8; Self::ED25519_SEED_LEN]);
+        rng.fill_bytes(seed.as_mut());
 
         let secret_key = ed25519::SigningKey::from_bytes(&seed);
         let public_key = secret_key.verifying_key();
         (secret_key, public_key)
     }
 
+    /// The seed is as sensitive as the key: ML-DSA keys can be regenerated from it.
     fn gen_mldsa65_keys(rng: &mut impl Rng) -> (ml_dsa_65::PrivateKey, ml_dsa_65::PublicKey) {
-        let mut seed = [0u8; Self::MLDSA65_SEED_LEN];
-        rng.fill_bytes(&mut seed);
+        let mut seed = Zeroizing::new([0u8; Self::MLDSA65_SEED_LEN]);
+        rng.fill_bytes(seed.as_mut());
 
         let (public_key, secret_key) = ml_dsa_65::KG::keygen_from_seed(&seed);
         (secret_key, public_key)
@@ -80,7 +81,8 @@ impl SecretKey {
 
     pub fn from_parts(key_id: KeyId, ed25519: Ed25519SecretKey, mldsa65: MlDsa65SecretKey) -> Result<Self, Error> {
         let ed25519_key = ed25519::SigningKey::from_bytes(ed25519.as_bytes());
-        let mldsa65_key = ml_dsa_65::PrivateKey::try_from_bytes(mldsa65.into_bytes()).map_err(|e| Error::Crypto(e.to_string()))?;
+        // fips204 takes the array by value; that copy is beyond our reach to wipe.
+        let mldsa65_key = ml_dsa_65::PrivateKey::try_from_bytes(*mldsa65.as_bytes()).map_err(|e| Error::Crypto(e.to_string()))?;
         Ok(SecretKey {
             key_id,
             ed25519: ed25519_key,

@@ -134,6 +134,36 @@ mod tests {
     }
 
     #[test]
+    fn test_secret_key_types_are_wiped_on_drop() {
+        fn wiped_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        wiped_on_drop::<SecretKey>();
+        wiped_on_drop::<Ed25519SecretKey>();
+        wiped_on_drop::<MlDsa65SecretKey>();
+        wiped_on_drop::<ed25519_dalek::SigningKey>();
+        wiped_on_drop::<fips204::ml_dsa_65::PrivateKey>();
+    }
+
+    #[test]
+    fn test_secret_key_bytes_are_never_printed() {
+        let ed25519 = Ed25519SecretKey::from_bytes([0x41; Ed25519SecretKey::LEN]);
+        let mldsa65 = MlDsa65SecretKey::from_bytes([0x41; MlDsa65SecretKey::LEN]);
+
+        assert_eq!(format!("{ed25519:?}"), "Ed25519SecretKey([REDACTED])");
+        assert_eq!(format!("{mldsa65:?}"), "MlDsa65SecretKey([REDACTED])");
+        assert_eq!(format!("{:#?}", ed25519), "Ed25519SecretKey([REDACTED])");
+    }
+
+    #[test]
+    fn test_secret_key_read_from() {
+        let mut r = std::io::Cursor::new([7u8; Ed25519SecretKey::LEN + 1]);
+        let key = Ed25519SecretKey::read_from(&mut r).unwrap();
+        assert_eq!(key.as_bytes(), &[7u8; Ed25519SecretKey::LEN]);
+
+        let mut short = std::io::Cursor::new([7u8; Ed25519SecretKey::LEN - 1]);
+        assert!(matches!(Ed25519SecretKey::read_from(&mut short), Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
     fn test_key_id_display_hex() {
         let id = KeyId([0xAB, 0xCD, 0x01, 0x23, 0x45, 0x67, 0x89, 0xEF]);
         assert_eq!(id.to_string(), "ABCD0123456789EF");

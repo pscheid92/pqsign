@@ -97,9 +97,11 @@ pub(super) fn encode(secret_key: &SecretKey, password: &Zeroizing<String>) -> Re
 }
 
 fn serialize_payload(secret_key: &SecretKey) -> Result<Zeroizing<Vec<u8>>, Error> {
+    // Exact capacity: the buffer never reallocates, so no unwiped copy of the key is left on the heap.
     let mut buf = Zeroizing::new(Vec::with_capacity(PAYLOAD_LEN));
-    Ed25519SecretKey::from_bytes(secret_key.ed25519.to_bytes()).write_to(&mut *buf)?;
-    MlDsa65SecretKey::from_bytes(secret_key.mldsa65.clone().into_bytes()).write_to(&mut *buf)?;
+    buf.extend_from_slice(secret_key.ed25519.as_bytes());
+    let mldsa65 = Zeroizing::new(secret_key.mldsa65.clone().into_bytes());
+    buf.extend_from_slice(mldsa65.as_slice());
     secret_key.key_id.write_to(&mut *buf)?;
     Ok(buf)
 }

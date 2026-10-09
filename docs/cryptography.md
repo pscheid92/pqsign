@@ -107,10 +107,16 @@ The key ID is duplicated inside the encrypted payload and in the plaintext heade
 
 ## Memory Safety
 
-- `SecretKey` implements `ZeroizeOnDrop` — key material is overwritten when the struct is dropped
-- Passwords use `Zeroizing<String>` throughout the entire flow — zeroized on drop
-- The serialized secret key payload uses `Zeroizing<Vec<u8>>`
-- The decrypted plaintext uses `Zeroizing<Vec<u8>>`
+Secret material is wiped from memory as soon as it is no longer needed:
+
+- `SecretKey` implements `ZeroizeOnDrop`, and so do the Ed25519 and ML-DSA-65 key types inside it.
+- The byte wrappers for secret keys used while reading and writing key files wipe themselves on drop, print as `[REDACTED]`, and cannot be cloned or compared.
+- Key generation seeds, passwords, the serialized and the decrypted key payload are held in zeroizing buffers.
+- The key derived by Argon2id and the cipher's copy of it are wiped on drop.
+- Argon2id's initial hash and its 256 MiB of working memory are wiped after every key derivation.
+
+This shortens how long secrets linger; it does not guarantee that no copy remains. Rust moves values on the stack without wiping the old location, and the cryptographic libraries make internal copies; `fips204`, for example, takes the secret key bytes by value. Memory may also reach swap or a core dump while pqsign runs; pqsign does not lock memory or disable core dumps.
+
 - Secret key files are written with Unix permissions `0600`, also when `--overwrite` replaces an existing file, and directories pqsign creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
 - Key files are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key. `generate` places the public key first and the secret key last.
 - `sign` warns when the secret key file is accessible by other users.
