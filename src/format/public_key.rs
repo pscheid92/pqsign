@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
@@ -8,7 +7,7 @@ use fips204::traits::SerDes;
 use super::file::{self, Access};
 use super::{FileHeader, FileType};
 use crate::domain::*;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 
 const TEXT_PREFIX: &str = "pqsign:v1:";
 
@@ -34,8 +33,8 @@ fn decode(data: &[u8]) -> Result<PublicKey, Error> {
     PublicKey::from_parts(header.key_id, ed25519_pk, mldsa65_pk)
 }
 
-/// The single-line text form of a public key, including the trailing newline.
-pub(super) fn encode_text(public_key: &PublicKey) -> Result<String, Error> {
+/// The single-line text form of a public key, as written to `.pub` files, including the trailing newline.
+pub fn encode_text(public_key: &PublicKey) -> Result<String, Error> {
     let blob = encode(public_key)?;
     Ok(format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob)))
 }
@@ -47,7 +46,8 @@ pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
 }
 
 pub fn read(path: &Path) -> Result<PublicKey, Error> {
-    let content = fs::read_to_string(path).io_context(path)?;
+    let data = file::read(path)?;
+    let content = String::from_utf8(data).map_err(|_| Error::InvalidFormat("not a pqsign public key (not text)".into()))?;
     read_from_string(&content)
 }
 

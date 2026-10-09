@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
@@ -9,7 +8,7 @@ use zeroize::Zeroizing;
 use super::file::{self, Access};
 use super::{FileHeader, FileType, crypto, kdf};
 use crate::domain::*;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::format::kdf::Kdf;
 
 const ARGON2_SALT_LEN: usize = 16;
@@ -31,7 +30,7 @@ pub fn read(path: &Path, password: Zeroizing<String>) -> Result<SecretKey, Error
 }
 
 pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>) -> Result<SecretKey, Error> {
-    let data = fs::read(path).io_context(path)?;
+    let data = file::read(path)?;
     let mut r = Cursor::new(data.as_slice());
     let header = read_and_validate_header(&mut r)?;
 

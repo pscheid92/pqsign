@@ -468,3 +468,18 @@ fn test_secret_key_wrong_length_detected_before_password() {
         }
     }
 }
+
+// -- Bounded reads --
+
+#[test]
+fn test_readers_reject_large_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.bin");
+    std::fs::write(&path, vec![0u8; 1024 * 1024]).unwrap();
+
+    assert!(matches!(read_signature(&path), Err(Error::InvalidFormat(_))));
+    assert!(matches!(read_public_key(&path), Err(Error::InvalidFormat(_))));
+    assert!(matches!(inspect_file(&path), Err(Error::InvalidFormat(_))));
+    let secret_key = read_secret_key_with(&path, |_| panic!("password requested for a file that is not a key"));
+    assert!(matches!(secret_key, Err(Error::InvalidFormat(_))));
+}

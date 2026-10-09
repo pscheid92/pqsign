@@ -1,16 +1,42 @@
-//! Atomic file writes.
+//! Reading and writing pqsign files.
 //!
-//! Data goes to a temporary file in the destination directory, which is synced and then renamed
-//! over the destination. A crash or failure at any point leaves either the old file or the new
-//! one, never a partial write.
+//! Reads are bounded: pqsign files are a few kilobytes, so anything much larger is rejected
+//! without loading it. Writes are atomic: data goes to a temporary file in the destination
+//! directory, which is synced and then renamed over the destination. A crash or failure at any
+//! point leaves either the old file or the new one, never a partial write.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use tempfile::NamedTempFile;
 
 use crate::errors::{Error, IoContext};
+
+/// Upper bound for any file pqsign reads as one of its own.
+///
+/// The largest current file, a signature with a maximal trusted comment, is 4,415 bytes. The headroom
+/// lets files from newer format versions reach their "requires a newer version" check.
+pub(super) const MAX_FILE_LEN: u64 = 64 * 1024;
+
+/// Reads a pqsign file, rejecting anything larger than [`MAX_FILE_LEN`] without loading it.
+pub(super) fn read(path: &Path) -> Result<Vec<u8>, Error> {
+    let file = fs::File::open(path).io_context(path)?;
+    read_limited(file, MAX_FILE_LEN).io_context(path)?.ok_or_else(too_large)
+}
+
+/// Reads at most `limit` bytes, or returns `None` if there are more. Never reads past `limit + 1`
+/// bytes, so endless inputs such as `/dev/zero` stop early.
+fn read_limited(reader: impl Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
+    let mut data = Vec::new();
+    reader.take(limit + 1).read_to_end(&mut data)?;
+    Ok((data.len() as u64 <= limit).then_some(data))
+}
+
+fn too_large() -> Error {
+    let msg = format!("not a pqsign file (larger than {} KiB)", MAX_FILE_LEN / 1024);
+    Error::InvalidFormat(msg)
+}
 
 /// Who may read a file pqsign writes.
 #[derive(Clone, Copy)]
@@ -121,4 +147,37 @@ fn temp_file_in(dir: &Path, dest: &Path, access: Access) -> io::Result<NamedTemp
     #[cfg(not(unix))]
     let _ = access;
     builder.tempfile_in(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_read_limited_accepts_up_to_the_limit() {
+        assert_eq!(read_limited(&[1u8; 8][..], 8).unwrap(), Some(vec![1u8; 8]));
+        assert_eq!(read_limited(&[1u8; 9][..], 8).unwrap(), None);
+        assert_eq!(read_limited(&[][..], 8).unwrap(), Some(vec![]));
+    }
+
+    #[test]
+    fn test_read_limited_stops_on_endless_input() {
+        assert_eq!(read_limited(io::repeat(0), MAX_FILE_LEN).unwrap(), None);
+    }
+
+    #[test]
+    fn test_read_rejects_files_over_the_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("file");
+
+        fs::write(&path, vec![0u8; MAX_FILE_LEN as usize]).unwrap();
+        assert_eq!(read(&path).unwrap().len(), MAX_FILE_LEN as usize);
+
+        fs::write(&path, vec![0u8; MAX_FILE_LEN as usize + 1]).unwrap();
+        match read(&path) {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains("larger than 64 KiB"), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
 }

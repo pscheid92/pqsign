@@ -1,11 +1,10 @@
 use std::fmt;
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use super::{FileHeader, FileType, kdf};
+use super::{FileHeader, FileType, file, kdf};
 use crate::domain::KeyId;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::format::kdf::Kdf;
 
 // -- Public API --
@@ -16,12 +15,16 @@ pub enum FileInfo {
     Signature { key_id: KeyId, trusted_comment: String },
 }
 
+/// Reads the file once, bounded to the size of a pqsign file, and decodes it from memory.
 pub fn inspect_file(path: &Path) -> Result<FileInfo, Error> {
-    if let Some(content) = read_text_if_public_key(path) {
-        let pk = super::public_key::read_from_string(&content)?;
-        return Ok(FileInfo::PublicKey { key_id: pk.key_id });
+    let data = file::read(path)?;
+    match std::str::from_utf8(&data) {
+        Ok(text) if text.starts_with("pqsign:") => {
+            let pk = super::public_key::read_from_string(text)?;
+            Ok(FileInfo::PublicKey { key_id: pk.key_id })
+        }
+        _ => inspect_binary(&data),
     }
-    inspect_binary(path)
 }
 
 // -- Display --
@@ -58,13 +61,8 @@ impl fmt::Display for FileInfo {
 
 // -- Helpers --
 
-fn read_text_if_public_key(path: &Path) -> Option<String> {
-    fs::read_to_string(path).ok().filter(|content| content.trim_end().starts_with("pqsign:"))
-}
-
-fn inspect_binary(path: &Path) -> Result<FileInfo, Error> {
-    let data = fs::read(path).io_context(path)?;
-    let mut r = Cursor::new(data.as_slice());
+fn inspect_binary(data: &[u8]) -> Result<FileInfo, Error> {
+    let mut r = Cursor::new(data);
     let header = FileHeader::read(&mut r)?;
 
     let result = match header.file_type {
@@ -74,7 +72,7 @@ fn inspect_binary(path: &Path) -> Result<FileInfo, Error> {
             FileInfo::SecretKey { key_id: header.key_id, kdf }
         }
         FileType::Signature => {
-            let sig = super::signature::read(path)?;
+            let sig = super::signature::decode(data)?;
             FileInfo::Signature {
                 key_id: sig.key_id,
                 trusted_comment: sig.trusted_comment,

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::util::resolve_key_path;
 use crate::domain::KeyPair;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::format;
 use crate::password::PasswordSource;
 
@@ -31,7 +31,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let keypair = KeyPair::new();
     format::write_key_pair(&secret_key_path, &public_key_path, &keypair, password, overwrite)?;
 
-    let pk_content = std::fs::read_to_string(&public_key_path).io_context(&public_key_path)?;
+    let pk_content = format::encode_public_key(&keypair.public_key)?;
 
     eprintln!("Secret key: {}", secret_key_path.display());
     eprintln!("Public key: {}", public_key_path.display());
