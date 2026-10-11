@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::util::{resolve_key_path, resolve_signature_path, with_suffix};
+use super::util::{resolve_key_path, resolve_signature_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix};
 use crate::domain::SignatureFormat;
 use crate::errors::{Error, IoContext};
 use crate::format;
@@ -34,7 +34,11 @@ pub fn run(opts: Options) -> Result<(), Error> {
     check_signature_path(&signature_path, &file, &secret_key_path)?;
     let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
     format::check_trusted_comment(&trusted)?;
-    warn_if_accessible_by_others(&secret_key_path);
+    warn_if_accessible_by_others(&secret_key_path, "secret key");
+    warn_if_directory_writable_by_others(&secret_key_path, "secret key");
+    if let PasswordSource::File(path) = &password {
+        warn_if_accessible_by_others(path, "password file");
+    }
 
     let secret_key = format::read_secret_key_with(&secret_key_path, |_kdf| password.read_existing())?;
     let signature = secret_key.sign_as(&file, &trusted, format)?;
@@ -81,23 +85,6 @@ fn is_same_file(a: &Path, b: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     }
-}
-
-/// Secret keys are encrypted, so this warns instead of refusing like ssh does. Keys written by pqsign 0.1
-/// with `generate --overwrite` could be left readable by everyone.
-fn warn_if_accessible_by_others(secret_key_path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let Ok(meta) = std::fs::metadata(secret_key_path) else { return };
-        let mode = meta.permissions().mode() & 0o777;
-        if mode & 0o077 != 0 {
-            let path = SafePath(secret_key_path);
-            eprintln!("warning: secret key {path} is accessible by other users (mode {mode:04o}); restrict it with: chmod 600 {path}");
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = secret_key_path;
 }
 
 /// `timestamp:<unix time>\tfile:<file name>`, then a tab and the user's comment if there is one. The file name

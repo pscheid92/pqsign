@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::util::{resolve_key_path, with_suffix};
+use super::util::{resolve_key_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix};
 use crate::domain::KeyPair;
 use crate::errors::Error;
 use crate::format::{self, Kdf};
@@ -29,6 +29,11 @@ pub fn run(opts: Options) -> Result<(), Error> {
         check_not_exists(&public_key_path)?;
     }
 
+    // The secret key itself is about to be written with mode 0600, so only where it goes and the password matter.
+    warn_if_directory_writable_by_others(&secret_key_path, "secret key");
+    if let PasswordSource::File(path) = &password {
+        warn_if_accessible_by_others(path, "password file");
+    }
     let password = password.read_new()?;
 
     eprintln!("Generating key pair...");

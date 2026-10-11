@@ -621,6 +621,92 @@ fn test_cli_generate_writes_secret_key_0600_whatever_the_umask() {
     assert_eq!(mode(&dir.path().join("test.key.pub")), 0o000, "the public key follows the umask");
 }
 
+/// `generate` warns before it reads the password; an empty one makes it stop right after, without Argon2id.
+#[cfg(unix)]
+#[test]
+fn test_cli_warns_about_password_file_accessible_by_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let pw_file = dir.path().join("password");
+    fs::write(&file, b"data").unwrap();
+    fs::write(&pw_file, "test-pw\n").unwrap();
+    generate_key(&sk);
+    let password_file = ["--password-file", pw_file.to_str().unwrap()];
+    let sign = || {
+        cmd()
+            .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap()])
+            .args(password_file)
+            .assert()
+            .success()
+    };
+
+    fs::set_permissions(&pw_file, fs::Permissions::from_mode(0o600)).unwrap();
+    sign().stderr(predicates::str::contains("warning").not());
+
+    fs::set_permissions(&pw_file, fs::Permissions::from_mode(0o640)).unwrap();
+    let warning = format!("warning: password file {} is accessible by other users (mode 0640)", pw_file.display());
+    sign().stderr(predicates::str::contains(warning.as_str()));
+
+    fs::write(&pw_file, "\n").unwrap();
+    cmd()
+        .args(["generate", "-s", dir.path().join("new.key").to_str().unwrap()])
+        .args(password_file)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(warning.as_str()).and(predicates::str::contains("password cannot be empty")));
+}
+
+/// Whoever can write to the key's directory can replace the key with their own. A sticky directory such as /tmp
+/// only lets them replace files they own.
+#[cfg(unix)]
+#[test]
+fn test_cli_warns_about_key_directory_writable_by_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let keys = dir.path().join("keys");
+    let sk = keys.join("test.key");
+    let file = dir.path().join("msg.txt");
+    fs::create_dir(&keys).unwrap();
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    let sign = || {
+        cmd()
+            .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap(), "--password-stdin"])
+            .write_stdin("test-pw\n")
+            .assert()
+            .success()
+    };
+    let warning = |mode: &str| {
+        let text = format!(
+            "warning: secret key {} is in a directory other users can write to (mode {mode})",
+            sk.display()
+        );
+        predicates::str::contains(text).and(predicates::str::contains(format!("chmod go-w {}", keys.display())))
+    };
+
+    for mode in [0o700, 0o755, 0o1777] {
+        fs::set_permissions(&keys, fs::Permissions::from_mode(mode)).unwrap();
+        sign().stderr(predicates::str::contains("warning").not());
+    }
+    for (mode, shown) in [(0o777, "0777"), (0o775, "0775")] {
+        fs::set_permissions(&keys, fs::Permissions::from_mode(mode)).unwrap();
+        sign().stderr(warning(shown));
+    }
+
+    let new_key = keys.join("new.key");
+    let new_key_warning = format!("warning: secret key {} is in a directory other users can write to", new_key.display());
+    cmd()
+        .args(["generate", "-s", new_key.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("\n")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(new_key_warning).and(predicates::str::contains("password cannot be empty")));
+}
+
 // -- bounded reads --
 
 #[test]

@@ -80,7 +80,7 @@ pqsign sign document.pdf --password-file ~/.pqsign/password        # first line 
 pqsign generate -s ci.key --password-file ~/.pqsign/password      # no confirmation prompt
 ```
 
-The password is the first line of the input without its line ending; other whitespace is kept. `--password-stdin` is meant for pipes: on a terminal the typed password is echoed. Without a terminal and without one of these options, the command fails with an error instead of reading standard input.
+The password is the first line of the input without its line ending; other whitespace is kept. `--password-stdin` is meant for pipes: on a terminal the typed password is echoed. Without a terminal and without one of these options, the command fails with an error instead of reading standard input. Keep a password file readable by you only (`chmod 600`); pqsign warns when other users can access it.
 
 ### Verify a signature
 
