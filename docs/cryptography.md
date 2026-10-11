@@ -62,7 +62,7 @@ ed25519_sig = Ed25519.Sign(ed25519_sk, "pqsign-ed25519" || file_hash || trusted_
 mldsa65_sig = ML-DSA-65.Sign(mldsa65_sk, file_hash || ed25519_sig, ctx="pqsign-mldsa65")
 ```
 
-In v1, neither algorithm signs the key ID, and ML-DSA-65 covers the comment only through the Ed25519 signature bytes. A full verification still binds the comment, because changing it breaks the Ed25519 check, and defeating that even with Ed25519 broken would take a second preimage in SHA-512. But a verifier that checks only ML-DSA-65 would accept a changed comment, and the key ID can be changed freely.
+In v1, neither algorithm signs the key ID, and ML-DSA-65 covers the comment only through the Ed25519 signature bytes. A full verification still binds the comment, because changing it breaks the Ed25519 check, and defeating that even with Ed25519 broken would take a second preimage in SHA-512. But a verifier that checks only ML-DSA-65 would accept a changed comment, and the key ID can be changed freely: someone can copy another key's ID into their own public key and v1 signature, and the signature still verifies. `verify` notes this after a v1 signature checks out, and `inspect` marks a v1 key ID as not signed.
 
 ### Why Nesting?
 

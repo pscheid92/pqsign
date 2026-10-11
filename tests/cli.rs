@@ -1397,6 +1397,45 @@ fn test_cli_sign_refuses_to_overwrite_the_secret_key_through_a_link() {
     }
 }
 
+// -- format v1 --
+
+fn fixture(path: &str) -> String {
+    format!("{}/tests/fixtures/{path}", env!("CARGO_MANIFEST_DIR"))
+}
+
+/// v1 signatures do not sign the key ID, so a matching key ID proves nothing about who signed.
+#[test]
+fn test_cli_notes_that_v1_does_not_sign_the_key_id() {
+    let verify = |version: &str| {
+        cmd()
+            .args(["verify", &fixture(&format!("{version}/message.txt"))])
+            .args(["-p", &fixture(&format!("{version}/signer.pub"))])
+            .assert()
+            .success()
+    };
+    let inspect = |version: &str| {
+        cmd()
+            .args(["inspect", &fixture(&format!("{version}/message.txt.pqsig"))])
+            .assert()
+            .success()
+    };
+    let note = "note: format v1 does not sign the key ID, so only the fingerprint above identifies the signer";
+
+    verify("v1")
+        .stdout(predicates::str::contains("Signature: OK"))
+        .stderr(predicates::str::contains(note));
+    verify("v2").stderr(predicates::str::contains("note:").not());
+    cmd()
+        .args(["verify", &fixture("v1/message.txt"), "-p", &fixture("v1/signer.pub"), "-q"])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr("");
+
+    inspect("v1").stdout(predicates::str::is_match(r"Key ID: +[0-9A-F]{16} \(not signed in format v1\)\n").unwrap());
+    inspect("v2").stdout(predicates::str::contains("not signed").not());
+}
+
 // -- paths in output --
 
 /// File names can come from someone else, for example from an archive. Printed raw, an escape sequence could

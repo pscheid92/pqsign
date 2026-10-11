@@ -149,7 +149,7 @@ mod tests {
 
         assert_eq!(format!("{ed25519:?}"), "Ed25519SecretKey([REDACTED])");
         assert_eq!(format!("{mldsa65:?}"), "MlDsa65SecretKey([REDACTED])");
-        assert_eq!(format!("{:#?}", ed25519), "Ed25519SecretKey([REDACTED])");
+        assert_eq!(format!("{ed25519:#?}"), "Ed25519SecretKey([REDACTED])");
     }
 
     #[test]

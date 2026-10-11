@@ -5,3 +5,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Proposes newer versions of the crates pqsign depends on. Minor and patch releases come together in one weekly
+  # pull request; CI runs the tests, the MSRV build and cargo audit on it. Dependabot follows Cargo's rules, so a
+  # breaking 0.x release such as 0.4 to 0.5 counts as major and comes on its own. Security updates are separate.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        update-types:
+          - minor
+          - patch

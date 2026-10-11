@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use super::util::{resolve_key_path, resolve_signature_path};
+use crate::domain::SignatureFormat;
 use crate::errors::{Error, IoContext};
 use crate::format;
 use crate::terminal::SafePath;
@@ -50,6 +51,10 @@ pub fn run(opts: Options) -> Result<(), Error> {
         println!("Trusted comment: {}", signature.trusted_comment);
         println!("Public key: {pk_source}");
         println!("Fingerprint: {}", public_key.fingerprint());
+        // Anyone can copy another key's ID into a v1 signature and a public key of their own, and it still verifies.
+        if signature.format() == SignatureFormat::V1 {
+            eprintln!("note: format v1 does not sign the key ID, so only the fingerprint above identifies the signer");
+        }
     }
 
     Ok(())

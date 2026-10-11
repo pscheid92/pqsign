@@ -71,7 +71,11 @@ impl fmt::Display for FileInfo {
                 trusted_comment,
             } => {
                 writeln!(f, "Type:                 Signature (format {format})")?;
-                writeln!(f, "Key ID:               {key_id}")?;
+                let key_id_note = match format {
+                    SignatureFormat::V1 => " (not signed in format v1)",
+                    SignatureFormat::V2 => "",
+                };
+                writeln!(f, "Key ID:               {key_id}{key_id_note}")?;
                 if let Some(signer) = signer {
                     writeln!(f, "Signer (unverified):  {signer}")?;
                 }
