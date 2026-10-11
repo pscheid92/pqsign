@@ -42,6 +42,48 @@ pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// Warns when users other than the owner can access `path`, a secret key or a password file. pqsign warns instead
+/// of refusing like ssh does, because secret keys are encrypted, and keys written by pqsign 0.1 with
+/// `generate --overwrite` could be left readable by everyone.
+pub fn warn_if_accessible_by_others(path: &Path, what: &str) {
+    #[cfg(unix)]
+    if let Some(mode) = unix_mode(path)
+        && mode & 0o077 != 0
+    {
+        let path = SafePath(path);
+        let mode = mode & 0o777;
+        eprintln!("warning: {what} {path} is accessible by other users (mode {mode:04o}); restrict it with: chmod 600 {path}");
+    }
+    #[cfg(not(unix))]
+    let _ = (path, what);
+}
+
+/// Warns when users other than the owner can write to the directory that holds `path`, and so replace the file
+/// with their own. A sticky directory such as `/tmp` only lets them replace files they own.
+pub fn warn_if_directory_writable_by_others(path: &Path, what: &str) {
+    #[cfg(unix)]
+    {
+        let dir = path.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        if let Some(mode) = unix_mode(dir)
+            && mode & 0o022 != 0
+            && mode & 0o1000 == 0
+        {
+            let (path, dir) = (SafePath(path), SafePath(dir));
+            let mode = mode & 0o777;
+            eprintln!("warning: {what} {path} is in a directory other users can write to (mode {mode:04o}); restrict it with: chmod go-w {dir}");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (path, what);
+}
+
+/// The permission bits of `path`, following symlinks, or `None` if it cannot be read.
+#[cfg(unix)]
+fn unix_mode(path: &Path) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).ok().map(|meta| meta.permissions().mode() & 0o7777)
+}
+
 fn expand_tilde(path: PathBuf) -> PathBuf {
     if let Ok(rest) = path.strip_prefix("~")
         && let Some(home) = std::env::home_dir()
