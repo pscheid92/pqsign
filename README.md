@@ -118,7 +118,7 @@ pqsign inspect document.pdf      # auto-finds document.pdf.pqsig
 4. **ML-DSA-65** signs `(record || ed25519_signature)` — each algorithm covers everything on its own, and nesting prevents selective signature replacement.
 5. Verification requires both signatures to pass.
 
-This is signature format v2, written since pqsign 0.2. Signatures from pqsign 0.1 (format v1) still verify, and `pqsign sign --format v1` writes one for verifiers older than 0.2.
+This is signature format v2, written since pqsign 0.2. Signatures from pqsign 0.1 (format v1) still verify, and `pqsign sign --format v1` writes one for verifiers older than 0.2. A v1 signature does not sign the key ID, so only the fingerprint `verify` shows identifies its signer.
 
 Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. Secret key material, passwords and the Argon2id working memory are wiped from memory after use; see [memory safety](docs/cryptography.md#memory-safety) for what that does and does not cover.
 
