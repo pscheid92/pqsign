@@ -333,3 +333,61 @@ fn test_generate_overwrite_writes_through_symlink() {
     assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
     format::read_secret_key(&target, pw("new-pw")).unwrap();
 }
+
+// -- atomic signature writes --
+
+#[test]
+fn test_sign_replaces_an_existing_signature_and_leaves_no_temp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig_path = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"data").unwrap();
+    keygen(sk.clone(), "test-pw", false).unwrap();
+
+    sig(file.clone(), sk.clone(), None, Some("first".into())).unwrap();
+    sig(file.clone(), sk.clone(), None, Some("second".into())).unwrap();
+
+    assert!(format::read_signature(&sig_path).unwrap().trusted_comment.ends_with("\tsecond"));
+    assert_eq!(file_names(dir.path()), ["msg.txt", "msg.txt.pqsig", "test.key", "test.key.pub"]);
+    ver(file, dir.path().join("test.key.pub"), sig_path).unwrap();
+}
+
+/// The new signature is renamed over the old one, which is never truncated in place.
+#[cfg(unix)]
+#[test]
+fn test_sign_renames_the_signature_into_place() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let sig_path = dir.path().join("msg.txt.pqsig");
+    let old_sig = dir.path().join("old.pqsig");
+    fs::write(&file, b"data").unwrap();
+    keygen(sk.clone(), "test-pw", false).unwrap();
+
+    sig(file.clone(), sk.clone(), None, Some("first".into())).unwrap();
+    fs::hard_link(&sig_path, &old_sig).unwrap();
+    sig(file, sk, None, Some("second".into())).unwrap();
+
+    assert_ne!(fs::metadata(&sig_path).unwrap().ino(), fs::metadata(&old_sig).unwrap().ino());
+    assert!(format::read_signature(&old_sig).unwrap().trusted_comment.ends_with("\tfirst"));
+}
+
+#[test]
+fn test_sign_does_not_create_missing_directories() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    keygen(sk.clone(), "test-pw", false).unwrap();
+
+    let err = sig(file, sk, Some(dir.path().join("missing").join("msg.txt.pqsig")), None).unwrap_err();
+
+    assert!(
+        matches!(&err, pqsign::errors::Error::IoPath { source, .. } if source.kind() == std::io::ErrorKind::NotFound),
+        "got: {err}"
+    );
+    assert!(!dir.path().join("missing").exists());
+}

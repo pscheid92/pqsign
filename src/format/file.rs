@@ -3,7 +3,8 @@
 //! Reads are bounded: pqsign files are a few kilobytes, so anything much larger is rejected
 //! without loading it. Writes are atomic: data goes to a temporary file in the destination
 //! directory, which is synced and then renamed over the destination. A crash or failure at any
-//! point leaves either the old file or the new one, never a partial write.
+//! point leaves either the old file or the new one, never a partial write. The destination
+//! directory must exist; only [`create_parent_dir`] creates one.
 
 use std::ffi::OsString;
 use std::fs;
@@ -58,7 +59,6 @@ impl Staged {
     pub(super) fn new(dest: &Path, data: &[u8], access: Access) -> Result<Self, Error> {
         let dest = resolve_symlink(dest);
         let dir = parent_dir(&dest);
-        create_dir_all(dir).io_context(dir)?;
 
         let mut temp = temp_file_in(dir, &dest, access).io_context(&dest)?;
         temp.write_all(data).io_context(&dest)?;
@@ -89,6 +89,13 @@ pub(super) fn write(dest: &Path, data: &[u8], access: Access) -> Result<(), Erro
     Ok(())
 }
 
+/// Creates the directory that will hold `path` and any missing parents, accessible by the owner only on Unix.
+/// Existing directories are left alone.
+pub(super) fn create_parent_dir(path: &Path) -> Result<(), Error> {
+    let dir = parent_dir(path);
+    create_dir_all(dir).io_context(dir)
+}
+
 /// Makes completed renames durable by syncing the directory that holds `path`.
 ///
 /// Best effort: the rename already happened, and some file systems do not support syncing directories.
@@ -117,7 +124,6 @@ fn parent_dir(path: &Path) -> &Path {
     }
 }
 
-/// Creates missing directories, accessible by the owner only on Unix. Existing directories are left alone.
 fn create_dir_all(dir: &Path) -> io::Result<()> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
@@ -138,17 +144,28 @@ fn temp_file_in(dir: &Path, dest: &Path, access: Access) -> io::Result<NamedTemp
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix).suffix(".tmp");
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = match access {
-            Access::Private => 0o600,
-            Access::Public => 0o666,
-        };
-        builder.permissions(fs::Permissions::from_mode(mode));
+    builder.permissions(permissions(access));
+    let temp = builder.tempfile_in(dir)?;
+
+    // The umask filters the mode a file is created with, and could leave a private file unreadable even by its
+    // owner. Setting the mode again on the open file makes it exactly 0600.
+    #[cfg(unix)]
+    if let Access::Private = access {
+        temp.as_file().set_permissions(permissions(access))?;
     }
     #[cfg(not(unix))]
     let _ = access;
-    builder.tempfile_in(dir)
+    Ok(temp)
+}
+
+#[cfg(unix)]
+fn permissions(access: Access) -> fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = match access {
+        Access::Private => 0o600,
+        Access::Public => 0o666,
+    };
+    fs::Permissions::from_mode(mode)
 }
 
 #[cfg(test)]

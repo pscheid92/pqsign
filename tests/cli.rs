@@ -600,6 +600,27 @@ fn test_cli_sign_warns_about_key_accessible_by_others() {
     sign().stderr(predicates::str::contains("is accessible by other users (mode 0644)").and(predicates::str::contains("chmod 600")));
 }
 
+/// The umask can only take permissions away. With 0777 it used to leave the secret key unreadable by its owner.
+#[cfg(unix)]
+#[test]
+fn test_cli_generate_writes_secret_key_0600_whatever_the_umask() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+
+    Command::new("sh")
+        .args(["-c", "umask 0777 && exec \"$@\"", "sh", env!("CARGO_BIN_EXE_pqsign")])
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("pw\n")
+        .assert()
+        .success();
+
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&sk), 0o600);
+    assert_eq!(mode(&dir.path().join("test.key.pub")), 0o000, "the public key follows the umask");
+}
+
 // -- bounded reads --
 
 #[test]
@@ -1218,6 +1239,75 @@ fn test_cli_signs_files_whose_names_are_not_utf8() {
             .assert()
             .success()
             .stdout(predicates::str::contains(comment));
+    }
+}
+
+// -- signature path --
+
+/// The password file does not exist: an error about it would mean the path was checked too late.
+#[test]
+fn test_cli_sign_refuses_to_overwrite_the_file_or_its_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    let contents = || [&file, &sk, &pk].map(|path| fs::read(path).unwrap());
+    let before = contents();
+
+    for (sig, expected) in [
+        (&file, "would overwrite the file being signed"),
+        (&sk, "would overwrite the secret key"),
+        (&pk, "would overwrite the public key"),
+    ] {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-x",
+                sig.to_str().unwrap(),
+                "--password-file",
+                "/no/such/password",
+            ])
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains(expected).and(predicates::str::contains("no such file").not()));
+    }
+
+    assert_eq!(contents(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_refuses_to_overwrite_the_secret_key_through_a_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let symlink = dir.path().join("symlink.pqsig");
+    let hard_link = dir.path().join("hard-link.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    std::os::unix::fs::symlink(&sk, &symlink).unwrap();
+    fs::hard_link(&sk, &hard_link).unwrap();
+
+    for sig in [&symlink, &hard_link] {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-x",
+                sig.to_str().unwrap(),
+                "--password-stdin",
+            ])
+            .write_stdin("test-pw\n")
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("would overwrite the secret key"));
     }
 }
 

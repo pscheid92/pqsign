@@ -1,12 +1,12 @@
 use std::ffi::OsStr;
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-use super::{FileHeader, FileType, file};
+use super::file::{self, Access};
+use super::{FileHeader, FileType};
 use crate::domain::signature::{SUITE_ED25519_MLDSA65, Version};
 use crate::domain::*;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::terminal;
 
 const MAX_COMMENT_LEN: u32 = 1024;
@@ -41,9 +41,10 @@ pub fn escape_comment_field(text: &str) -> String {
     escaped
 }
 
+/// Writes a signature atomically. An existing file is replaced; a missing directory is an error.
 pub fn write(path: &Path, sig: &Signature) -> Result<(), Error> {
     let buf = encode(sig)?;
-    fs::write(path, &buf).io_context(path)
+    file::write(path, &buf, Access::Public)
 }
 
 pub fn read(path: &Path) -> Result<Signature, Error> {

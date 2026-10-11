@@ -157,8 +157,9 @@ Secret material is wiped from memory as soon as it is no longer needed:
 
 This shortens how long secrets linger; it does not guarantee that no copy remains. Rust moves values on the stack without wiping the old location, and the cryptographic libraries make internal copies; `fips204`, for example, takes the secret key bytes by value. Memory may also reach swap or a core dump while pqsign runs; pqsign does not lock memory or disable core dumps.
 
-- Secret key files are written with Unix permissions `0600`, also when `--overwrite` replaces an existing file, and directories pqsign creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
-- Key files are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key. `generate` places the public key first and the secret key last.
+- Secret key files are written with Unix permissions `0600`, whatever the umask and also when `--overwrite` replaces an existing file, and directories `generate` creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
+- Key files and signatures are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key or leaves a truncated signature. `generate` places the public key first and the secret key last.
+- `sign` refuses a signature path that names the file being signed, its secret key or that key's `.pub` file, also through a symlink and, on Unix, a hard link, before asking for the password.
 - `sign` warns when the secret key file is accessible by other users.
 
 ## File Format
