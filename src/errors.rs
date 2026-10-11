@@ -17,6 +17,9 @@ pub enum Error {
     #[error("{} already exists (use --overwrite)", SafePath(.0))]
     FileExists(std::path::PathBuf),
 
+    #[error("the signature would overwrite {what} {}; choose another signature path with -x", SafePath(.path))]
+    WouldOverwrite { what: &'static str, path: std::path::PathBuf },
+
     #[error("wrong password (decryption failed)")]
     WrongPassword,
 

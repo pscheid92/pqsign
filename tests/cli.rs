@@ -1242,6 +1242,75 @@ fn test_cli_signs_files_whose_names_are_not_utf8() {
     }
 }
 
+// -- signature path --
+
+/// The password file does not exist: an error about it would mean the path was checked too late.
+#[test]
+fn test_cli_sign_refuses_to_overwrite_the_file_or_its_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    let contents = || [&file, &sk, &pk].map(|path| fs::read(path).unwrap());
+    let before = contents();
+
+    for (sig, expected) in [
+        (&file, "would overwrite the file being signed"),
+        (&sk, "would overwrite the secret key"),
+        (&pk, "would overwrite the public key"),
+    ] {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-x",
+                sig.to_str().unwrap(),
+                "--password-file",
+                "/no/such/password",
+            ])
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains(expected).and(predicates::str::contains("no such file").not()));
+    }
+
+    assert_eq!(contents(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_refuses_to_overwrite_the_secret_key_through_a_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let file = dir.path().join("msg.txt");
+    let symlink = dir.path().join("symlink.pqsig");
+    let hard_link = dir.path().join("hard-link.pqsig");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    std::os::unix::fs::symlink(&sk, &symlink).unwrap();
+    fs::hard_link(&sk, &hard_link).unwrap();
+
+    for sig in [&symlink, &hard_link] {
+        cmd()
+            .args([
+                "sign",
+                file.to_str().unwrap(),
+                "-s",
+                sk.to_str().unwrap(),
+                "-x",
+                sig.to_str().unwrap(),
+                "--password-stdin",
+            ])
+            .write_stdin("test-pw\n")
+            .assert()
+            .code(2)
+            .stderr(predicates::str::contains("would overwrite the secret key"));
+    }
+}
+
 // -- paths in output --
 
 /// File names can come from someone else, for example from an archive. Printed raw, an escape sequence could

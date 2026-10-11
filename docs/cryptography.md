@@ -159,6 +159,7 @@ This shortens how long secrets linger; it does not guarantee that no copy remain
 
 - Secret key files are written with Unix permissions `0600`, whatever the umask and also when `--overwrite` replaces an existing file, and directories `generate` creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
 - Key files and signatures are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key or leaves a truncated signature. `generate` places the public key first and the secret key last.
+- `sign` refuses a signature path that names the file being signed, its secret key or that key's `.pub` file, also through a symlink and, on Unix, a hard link, before asking for the password.
 - `sign` warns when the secret key file is accessible by other users.
 
 ## File Format

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::util::{resolve_key_path, resolve_signature_path};
+use super::util::{resolve_key_path, resolve_signature_path, with_suffix};
 use crate::domain::SignatureFormat;
 use crate::errors::{Error, IoContext};
 use crate::format;
@@ -31,6 +31,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
     // Validate the input file and the comment before asking for the password
     std::fs::metadata(&file).io_context(&file)?;
+    check_signature_path(&signature_path, &file, &secret_key_path)?;
     let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
     format::check_trusted_comment(&trusted)?;
     warn_if_accessible_by_others(&secret_key_path);
@@ -43,6 +44,43 @@ pub fn run(opts: Options) -> Result<(), Error> {
     eprintln!("Secret key: {}", SafePath(&secret_key_path));
 
     Ok(())
+}
+
+/// Refuses a signature path that names the file being signed or one of the key files, which the signature would
+/// replace.
+fn check_signature_path(signature: &Path, file: &Path, secret_key: &Path) -> Result<(), Error> {
+    let public_key = with_suffix(secret_key, ".pub");
+    let protected = [
+        ("the file being signed", file),
+        ("the secret key", secret_key),
+        ("the public key", &public_key),
+    ];
+
+    if let Some((what, path)) = protected.into_iter().find(|(_, path)| is_same_file(signature, path)) {
+        let err = Error::WouldOverwrite {
+            what,
+            path: path.to_path_buf(),
+        };
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Whether both paths name the same existing file, also through symlinks and, on Unix, hard links.
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Secret keys are encrypted, so this warns instead of refusing like ssh does. Keys written by pqsign 0.1
