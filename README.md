@@ -24,7 +24,7 @@ All release binaries are signed with pqsign itself. The release signing key [`re
 BLAKE2b-256:tgolgaKRfSGSvflaZqCjVtX+YXy6I+/tgvAbOW/npIc
 ```
 
-See [install & verification](docs/install.md) for how to check a download or rebuild it from source.
+See [install & verification](docs/install.md) for how to check a download, rebuild it from source, or list the crates it contains.
 
 ## Quick Start
 

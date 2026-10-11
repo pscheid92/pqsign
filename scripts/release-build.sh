@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the release binary for one target exactly as the release workflow does, so anyone can rebuild a release
-# and compare the bytes (docs/install.md). Needs the Rust version named in release.yml.
+# and compare the bytes (docs/install.md). Needs the Rust version named in release.yml and cargo-auditable.
 #
 # Usage: scripts/release-build.sh <target>
 set -euo pipefail
@@ -23,4 +23,5 @@ case "$target" in
   *-windows-msvc) rustflags+=" -C link-arg=/Brepro" ;;
 esac
 
-RUSTFLAGS=$rustflags cargo build --release --locked --target "$target"
+# cargo-auditable embeds the dependency list, so `cargo audit bin` and other scanners can check the binary.
+RUSTFLAGS=$rustflags cargo auditable build --release --locked --target "$target"
