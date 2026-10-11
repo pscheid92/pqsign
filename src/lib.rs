@@ -16,3 +16,5 @@ pub mod errors;
 pub mod format;
 #[doc(hidden)]
 pub mod password;
+#[doc(hidden)]
+pub mod terminal;

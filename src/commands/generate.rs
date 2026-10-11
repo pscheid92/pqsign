@@ -5,6 +5,7 @@ use crate::domain::KeyPair;
 use crate::errors::Error;
 use crate::format::{self, Kdf};
 use crate::password::PasswordSource;
+use crate::terminal::SafePath;
 
 pub struct Options {
     pub secret_key: Option<PathBuf>,
@@ -36,8 +37,8 @@ pub fn run(opts: Options) -> Result<(), Error> {
 
     let pk_content = format::encode_public_key(&keypair.public_key)?;
 
-    eprintln!("Secret key:  {}", secret_key_path.display());
-    eprintln!("Public key:  {}", public_key_path.display());
+    eprintln!("Secret key:  {}", SafePath(&secret_key_path));
+    eprintln!("Public key:  {}", SafePath(&public_key_path));
     eprintln!("Key ID:      {}", keypair.public_key.key_id());
     eprintln!("Fingerprint: {}", keypair.public_key.fingerprint());
     eprintln!();
