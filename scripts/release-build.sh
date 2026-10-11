@@ -7,6 +7,10 @@ set -euo pipefail
 
 target=${1:?usage: scripts/release-build.sh <target>}
 
+# Git Bash on Windows rewrites arguments and variables that look like Unix paths, such as /Brepro or =/cargo
+# below, before cargo sees them. Elsewhere these variables mean nothing.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' MSYS2_ENV_CONV_EXCL='*'
+
 # Panic messages of dependencies carry their source paths, which lie under the Cargo home. Remapping it keeps the
 # home directory of whoever builds out of the binary.
 cargo_home=${CARGO_HOME:-$HOME/.cargo}
