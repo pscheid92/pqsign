@@ -88,7 +88,7 @@ Almost entirely Argon2id (256 MiB, 3 iterations). Key generation (~164 µs) and 
 | 10 MiB | ~481 ms |
 | 100 MiB | ~504 ms |
 
-Argon2id dominates at all file sizes. Up to 10 MiB, the rows differ by Argon2id's run-to-run variance, about ±10% in these runs, rather than by file size: hashing 10 MiB adds only ~11 ms. Only at 100 MiB does BLAKE2b-512 hashing become visible (~105 ms on top of the Argon2id floor).
+Argon2id dominates at all file sizes. Up to 10 MiB, the rows differ by Argon2id's run-to-run variance, about ±10% in these runs, rather than by file size: hashing 10 MiB adds only ~11 ms. Only at 100 MiB does BLAKE2b-512 hashing become visible (~105 ms on top of the Argon2id floor). Writing the signature atomically, synced to disk, costs about 4 ms on the same machine, also within that variance.
 
 ### Verification
 

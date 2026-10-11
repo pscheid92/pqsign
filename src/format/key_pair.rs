@@ -14,7 +14,7 @@ use crate::errors::Error;
 /// Both files are encrypted, written and synced before either destination is touched. The public key is
 /// renamed into place first and the secret key last: if the final rename fails, the old secret key survives.
 /// Without `overwrite`, existing files are never replaced, and a public key written by this call is removed
-/// again when the secret key cannot be placed.
+/// again when the secret key cannot be placed. Missing directories are created, accessible by the owner only.
 pub fn write_key_pair(
     secret_path: &Path,
     public_path: &Path,
@@ -26,6 +26,8 @@ pub fn write_key_pair(
     let secret_data = secret_key::encode(&keypair.secret_key, &password, kdf)?;
     let public_text = public_key::encode_text(&keypair.public_key)?;
 
+    file::create_parent_dir(secret_path)?;
+    file::create_parent_dir(public_path)?;
     let secret = Staged::new(secret_path, &secret_data, Access::Private)?;
     let public = Staged::new(public_path, public_text.as_bytes(), Access::Public)?;
 
