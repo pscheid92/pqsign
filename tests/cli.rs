@@ -600,6 +600,27 @@ fn test_cli_sign_warns_about_key_accessible_by_others() {
     sign().stderr(predicates::str::contains("is accessible by other users (mode 0644)").and(predicates::str::contains("chmod 600")));
 }
 
+/// The umask can only take permissions away. With 0777 it used to leave the secret key unreadable by its owner.
+#[cfg(unix)]
+#[test]
+fn test_cli_generate_writes_secret_key_0600_whatever_the_umask() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+
+    Command::new("sh")
+        .args(["-c", "umask 0777 && exec \"$@\"", "sh", env!("CARGO_BIN_EXE_pqsign")])
+        .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("pw\n")
+        .assert()
+        .success();
+
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&sk), 0o600);
+    assert_eq!(mode(&dir.path().join("test.key.pub")), 0o000, "the public key follows the umask");
+}
+
 // -- bounded reads --
 
 #[test]

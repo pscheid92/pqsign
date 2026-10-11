@@ -138,17 +138,28 @@ fn temp_file_in(dir: &Path, dest: &Path, access: Access) -> io::Result<NamedTemp
     let mut builder = tempfile::Builder::new();
     builder.prefix(&prefix).suffix(".tmp");
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = match access {
-            Access::Private => 0o600,
-            Access::Public => 0o666,
-        };
-        builder.permissions(fs::Permissions::from_mode(mode));
+    builder.permissions(permissions(access));
+    let temp = builder.tempfile_in(dir)?;
+
+    // The umask filters the mode a file is created with, and could leave a private file unreadable even by its
+    // owner. Setting the mode again on the open file makes it exactly 0600.
+    #[cfg(unix)]
+    if let Access::Private = access {
+        temp.as_file().set_permissions(permissions(access))?;
     }
     #[cfg(not(unix))]
     let _ = access;
-    builder.tempfile_in(dir)
+    Ok(temp)
+}
+
+#[cfg(unix)]
+fn permissions(access: Access) -> fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = match access {
+        Access::Private => 0o600,
+        Access::Public => 0o666,
+    };
+    fs::Permissions::from_mode(mode)
 }
 
 #[cfg(test)]
