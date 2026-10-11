@@ -6,6 +6,7 @@ use crate::domain::SignatureFormat;
 use crate::errors::{Error, IoContext};
 use crate::format;
 use crate::password::PasswordSource;
+use crate::terminal::SafePath;
 
 pub struct Options {
     pub file: PathBuf,
@@ -38,8 +39,8 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let signature = secret_key.sign_as(&file, &trusted, format)?;
 
     format::write_signature(&signature_path, &signature)?;
-    eprintln!("Signature:  {}", signature_path.display());
-    eprintln!("Secret key: {}", secret_key_path.display());
+    eprintln!("Signature:  {}", SafePath(&signature_path));
+    eprintln!("Secret key: {}", SafePath(&secret_key_path));
 
     Ok(())
 }
@@ -53,7 +54,7 @@ fn warn_if_accessible_by_others(secret_key_path: &Path) {
         let Ok(meta) = std::fs::metadata(secret_key_path) else { return };
         let mode = meta.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
-            let path = secret_key_path.display();
+            let path = SafePath(secret_key_path);
             eprintln!("warning: secret key {path} is accessible by other users (mode {mode:04o}); restrict it with: chmod 600 {path}");
         }
     }

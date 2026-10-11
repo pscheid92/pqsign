@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::domain::{Fingerprint, KeyId};
+use crate::terminal::SafePath;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -13,7 +14,7 @@ pub enum Error {
     #[error("invalid format: {0}")]
     InvalidFormat(String),
 
-    #[error("{} already exists (use --overwrite)", .0.display())]
+    #[error("{} already exists (use --overwrite)", SafePath(.0))]
     FileExists(std::path::PathBuf),
 
     #[error("wrong password (decryption failed)")]
@@ -80,7 +81,7 @@ pub trait IoContext<T> {
 impl<T> IoContext<T> for Result<T, std::io::Error> {
     fn io_context(self, path: &Path) -> Result<T, Error> {
         self.map_err(|source| Error::IoPath {
-            context: path.display().to_string(),
+            context: SafePath(path).to_string(),
             source,
         })
     }

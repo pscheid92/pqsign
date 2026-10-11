@@ -1220,3 +1220,59 @@ fn test_cli_signs_files_whose_names_are_not_utf8() {
             .stdout(predicates::str::contains(comment));
     }
 }
+
+// -- paths in output --
+
+/// File names can come from someone else, for example from an archive. Printed raw, an escape sequence could
+/// recolor or erase output, and a line break could add a line that looks like pqsign's own.
+#[cfg(unix)]
+#[test]
+fn test_cli_escapes_the_paths_it_prints() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("evil\x1b[32m\nSignature: OK\u{202e}");
+    let escaped = "evil\\u{1b}[32m\\nSignature: OK\\u{202e}";
+    fs::create_dir(&dir).unwrap();
+
+    let sk = dir.join("test.key");
+    let pk = dir.join("test.key.pub");
+    let file = dir.join("msg.txt");
+    let other = dir.join("other.txt");
+    let generated = dir.join("generated.key");
+    let missing = dir.join("missing.txt");
+    let invalid = dir.join("..");
+    fs::write(&file, b"data").unwrap();
+    fs::write(&other, b"data").unwrap();
+    generate_key(&sk);
+    fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
+    let [sk, pk, file, other, generated, missing, invalid] =
+        [&sk, &pk, &file, &other, &generated, &missing, &invalid].map(|path| path.to_str().unwrap());
+
+    let check = |assert: assert_cmd::assert::Assert| {
+        let output = assert.get_output();
+        let text = String::from_utf8_lossy(&output.stdout) + String::from_utf8_lossy(&output.stderr);
+        assert!(!text.contains(['\x1b', '\u{202e}']), "raw control character in: {text:?}");
+        assert!(text.contains(escaped), "no escaped path in: {text:?}");
+    };
+
+    // generate, and refusing to overwrite
+    let generate = cmd().args(["generate", "-s", generated, "--password-stdin"]).write_stdin("pw\n").assert();
+    check(generate.success());
+    check(cmd().args(["generate", "-s", generated]).assert().failure());
+
+    // sign, with the warning about the key's mode, and verify
+    let signed = cmd().args(["sign", file, "-s", sk, "--password-stdin"]).write_stdin("test-pw\n").assert();
+    check(signed.success());
+    check(cmd().args(["verify", file, "-p", pk]).assert().success());
+    fs::write(file, b"tampered").unwrap();
+    check(cmd().args(["verify", file, "-p", pk]).assert().code(1));
+
+    // inspect, finding the signature and finding nothing
+    check(cmd().args(["inspect", file]).assert().success());
+    check(cmd().args(["inspect", other]).assert().failure());
+
+    // I/O errors and invalid paths
+    check(cmd().args(["verify", missing, "-p", pk]).assert().failure());
+    check(cmd().args(["sign", file, "-x", invalid]).assert().failure());
+}

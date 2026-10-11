@@ -10,6 +10,7 @@ use pqsign::domain::SignatureFormat;
 use pqsign::errors::Error;
 use pqsign::format::Kdf;
 use pqsign::password::PasswordSource;
+use pqsign::terminal::SafeText;
 
 /// Exit status when a signature does not verify. Like minisign and gpgv, every other error exits with 2, as
 /// usage errors from clap already do, so scripts can tell a bad signature from a check that could not happen.
@@ -22,7 +23,8 @@ fn main() -> ExitCode {
     match Cli::parse().run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            // Paths in errors are escaped where they are formatted; this also covers any message that is not.
+            eprintln!("error: {}", SafeText(&e.to_string()));
             let code = if e.is_verification_failure() { EXIT_NOT_VERIFIED } else { EXIT_ERROR };
             ExitCode::from(code)
         }

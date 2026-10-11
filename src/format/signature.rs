@@ -7,6 +7,7 @@ use super::{FileHeader, FileType, file};
 use crate::domain::signature::{SUITE_ED25519_MLDSA65, Version};
 use crate::domain::*;
 use crate::errors::{Error, IoContext};
+use crate::terminal;
 
 const MAX_COMMENT_LEN: u32 = 1024;
 
@@ -18,7 +19,7 @@ const MAX_COMMENT_LEN: u32 = 1024;
 pub fn check_trusted_comment(comment: &str) -> Result<(), Error> {
     check_comment_len(comment.len())?;
 
-    if let Some(c) = comment.chars().find(|&c| is_forbidden(c)) {
+    if let Some(c) = comment.chars().find(|&c| terminal::is_unsafe(c)) {
         let msg = format!("trusted comment contains a forbidden character ({})", c.escape_unicode());
         let err = Error::InvalidFormat(msg);
         return Err(err);
@@ -31,7 +32,7 @@ pub fn check_trusted_comment(comment: &str) -> Result<(), Error> {
 pub fn escape_comment_field(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for c in text.chars() {
-        if matches!(c, '\t' | '\\') || is_forbidden(c) {
+        if matches!(c, '\t' | '\\') || terminal::is_unsafe(c) {
             escaped.extend(c.escape_default());
         } else {
             escaped.push(c);
@@ -158,10 +159,4 @@ fn check_comment_len(len: usize) -> Result<(), Error> {
         return Err(err);
     }
     Ok(())
-}
-
-/// Control characters other than tab can move the cursor, erase or recolor terminal output. Bidirectional
-/// overrides and isolates reorder how text is displayed, so `invoice\u{202e}fdp.exe` reads as `invoiceexe.pdf`.
-fn is_forbidden(c: char) -> bool {
-    (c.is_control() && c != '\t') || matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use super::util::{resolve_key_path, resolve_signature_path};
 use crate::errors::{Error, IoContext};
 use crate::format;
+use crate::terminal::SafePath;
 
 pub struct Options {
     pub file: PathBuf,
@@ -30,7 +31,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         None => {
             let path = resolve_key_path(public_key, "default.key.pub")?;
             let pk = format::read_public_key(&path)?;
-            (pk, path.display().to_string())
+            (pk, SafePath(&path).to_string())
         }
     };
 
@@ -39,7 +40,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     if let Err(e) = signature.verify(&public_key, &file) {
         if !quiet {
             eprintln!("Public key: {pk_source}");
-            eprintln!("Signature:  {}", signature_path.display());
+            eprintln!("Signature:  {}", SafePath(&signature_path));
         }
         return Err(e);
     }

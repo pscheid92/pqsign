@@ -2,10 +2,11 @@ use std::path::{Path, PathBuf};
 
 use crate::errors::Error;
 use crate::format::SIG_FILE_EXTENSION;
+use crate::terminal::SafePath;
 
 pub fn validate_file_path(path: &Path) -> Result<(), Error> {
     if path.file_name().is_none() {
-        let msg = format!("not a valid file path: {}", path.display());
+        let msg = format!("not a valid file path: {}", SafePath(path));
         let err = Error::InvalidFormat(msg);
         return Err(err);
     }
