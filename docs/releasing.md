@@ -29,7 +29,7 @@ Each step only runs if the previous one succeeded:
 
 1. Checks that the tag matches the version in `Cargo.toml`.
 2. Runs the full CI suite: tests on Linux, macOS and Windows, tests with the minimum supported Rust version, clippy, rustfmt, actionlint, and `cargo audit` for dependencies with known vulnerabilities.
-3. Builds the five release targets with `--locked` and the exact Rust version set in the workflow.
+3. Builds the five release targets with `--locked`, the exact Rust version set in the workflow and [`scripts/release-build.sh`](../scripts/release-build.sh), which keeps build paths out of the binary. Each target is built a second time from another directory, and the job fails if the two binaries differ.
 4. Signs every archive twice: `.pqsig` in the current format, and `.v1.pqsig` for pqsign 0.1, which cannot read format v2.
 5. Verifies every signature against the committed `release.key.pub`. A release secret that does not match the committed key fails here.
 6. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives and signatures. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.

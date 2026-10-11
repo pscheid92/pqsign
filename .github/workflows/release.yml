@@ -92,8 +92,38 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # The script holds the flags that make the build reproducible, so people rebuilding a release use the same.
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        shell: bash
+        run: bash scripts/release-build.sh ${{ matrix.target }}
+
+      # A second build from a copy of the sources in another directory must give the same bytes, and no source path
+      # of a dependency may name this runner's Cargo home. Otherwise nobody could rebuild the release and compare.
+      - name: Check that the build is reproducible
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          copy=../pqsign-rebuild
+          mkdir -p "$copy"
+          git archive HEAD | tar -x -C "$copy"
+          (cd "$copy" && bash scripts/release-build.sh "$TARGET")
+
+          exe=pqsign
+          if [[ $TARGET == *-windows-* ]]; then exe=pqsign.exe; fi
+          binary="target/$TARGET/release/$exe"
+          if ! cmp "$binary" "$copy/$binary"; then
+            echo "::error::two builds of $TARGET from different directories differ"
+            exit 1
+          fi
+
+          all=$(( $(grep -a -o -F 'index.crates.io-' "$binary" | wc -l) ))
+          remapped=$(( $(grep -a -o -E '/cargo[/\\]registry[/\\]src[/\\]index\.crates\.io-' "$binary" | wc -l) ))
+          if (( all != remapped )); then
+            echo "::error::$(( all - remapped )) of $all dependency source paths in the $TARGET binary were not remapped"
+            exit 1
+          fi
+          sha256sum "$binary" 2>/dev/null || shasum -a 256 "$binary"
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
