@@ -92,8 +92,52 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # Pinned like the actions. cargo-auditable embeds the dependency list in the binary; cargo-cyclonedx writes the
+      # SBOM published next to each archive.
+      - name: Install build tools
+        run: cargo install --locked cargo-auditable@0.7.7 cargo-cyclonedx@0.5.9
+
+      # The script holds the flags that make the build reproducible, so people rebuilding a release use the same.
       - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        shell: bash
+        run: bash scripts/release-build.sh ${{ matrix.target }}
+
+      # A second build from a copy of the sources in another directory must give the same bytes, and no source path
+      # of a dependency may name this runner's Cargo home. Otherwise nobody could rebuild the release and compare.
+      - name: Check that the build is reproducible
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          copy=../pqsign-rebuild
+          mkdir -p "$copy"
+          git archive HEAD | tar -x -C "$copy"
+          (cd "$copy" && bash scripts/release-build.sh "$TARGET")
+
+          exe=pqsign
+          if [[ $TARGET == *-windows-* ]]; then exe=pqsign.exe; fi
+          binary="target/$TARGET/release/$exe"
+          if ! cmp "$binary" "$copy/$binary"; then
+            echo "::error::two builds of $TARGET from different directories differ"
+            exit 1
+          fi
+
+          all=$(( $(grep -a -o -F 'index.crates.io-' "$binary" | wc -l) ))
+          remapped=$(( $(grep -a -o -E '/cargo[/\\]registry[/\\]src[/\\]index\.crates\.io-' "$binary" | wc -l) ))
+          if (( all != remapped )); then
+            echo "::error::$(( all - remapped )) of $all dependency source paths in the $TARGET binary were not remapped"
+            exit 1
+          fi
+          sha256sum "$binary" 2>/dev/null || shasum -a 256 "$binary"
+
+      # Lists the crates compiled into this target's binary, without development dependencies.
+      - name: Write the SBOM
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo cyclonedx --format json --spec-version 1.5 --describe binaries --target "$TARGET" --target-in-filename
+          mv "pqsign_bin_$TARGET.cdx.json" "pqsign-$TARGET.cdx.json"
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
@@ -108,7 +152,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pqsign-${{ matrix.target }}
-          path: pqsign-${{ matrix.target }}.${{ matrix.archive }}
+          path: |
+            pqsign-${{ matrix.target }}.${{ matrix.archive }}
+            pqsign-${{ matrix.target }}.cdx.json
 
   sign:
     needs: build
@@ -151,13 +197,16 @@ jobs:
           pqsign generate -s "$RUNNER_TEMP/signing/release.key" --password-file "$RUNNER_TEMP/signing/password"
           echo "VERIFY_KEY=$RUNNER_TEMP/signing/release.key.pub" >> "$GITHUB_ENV"
 
-      # .pqsig is the current format; .v1.pqsig lets pqsign 0.1 verify the release it upgrades to.
-      - name: Sign archives
+      # Archives and SBOMs get a .pqsig in the current format. Archives also get a .v1.pqsig, which lets pqsign 0.1
+      # verify the release it upgrades to.
+      - name: Sign archives and SBOMs
         run: |
           key="$RUNNER_TEMP/signing/release.key"
           password="$RUNNER_TEMP/signing/password"
-          for archive in artifacts/*; do
-            pqsign sign "$archive" -s "$key" --password-file "$password"
+          for file in artifacts/*; do
+            pqsign sign "$file" -s "$key" --password-file "$password"
+          done
+          for archive in artifacts/*.tar.gz artifacts/*.zip; do
             pqsign sign "$archive" -s "$key" --password-file "$password" --format v1 -x "$archive.v1.pqsig"
           done
 
@@ -175,6 +224,9 @@ jobs:
           for archive in artifacts/*.tar.gz artifacts/*.zip; do
             pqsign verify "$archive" -p "$VERIFY_KEY"
             pqsign verify "$archive" -p "$VERIFY_KEY" -x "$archive.v1.pqsig"
+          done
+          for sbom in artifacts/*.cdx.json; do
+            pqsign verify "$sbom" -p "$VERIFY_KEY"
           done
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

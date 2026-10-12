@@ -103,3 +103,37 @@ gh attestation verify pqsign-x86_64-unknown-linux-gnu.tar.gz --repo pscheid92/pq
 ```
 
 It complements the pqsign signature rather than replacing it. The attestation is signed with a short-lived certificate that Sigstore issued to the release workflow, so it shows where the archive was built. The `.pqsig` file shows that the release key signed it.
+
+### Rebuild a release binary
+
+Release binaries after 0.2.0 are reproducible: the same tag, built with the same Rust version and flags, gives the same bytes. The release workflow builds every target twice, from different directories, and fails if the two binaries differ. Its log prints each binary's SHA-256. To rebuild one yourself, with the Rust version from the build job of [`release.yml`](../.github/workflows/release.yml) at that tag:
+
+```bash
+git clone https://github.com/pscheid92/pqsign && cd pqsign && git checkout vX.Y.Z
+rustup toolchain install 1.99.0 --target x86_64-unknown-linux-gnu
+cargo install --locked cargo-auditable@0.7.7
+RUSTUP_TOOLCHAIN=1.99.0 scripts/release-build.sh x86_64-unknown-linux-gnu
+
+# Compare with the binary inside the signed archive
+sha256sum target/x86_64-unknown-linux-gnu/release/pqsign
+tar xzf pqsign-x86_64-unknown-linux-gnu.tar.gz -O pqsign | sha256sum
+```
+
+[`scripts/release-build.sh`](../scripts/release-build.sh) is what the workflow runs. It keeps paths of the build machine out of the binary and sets the linker flags each platform needs. The linker and the C runtime are part of the build as well: the workflow uses GitHub's `ubuntu-latest`, `macos-latest` and `windows-latest` runners, and a different linker version, for example from another Xcode, can give different bytes.
+
+### List a binary's dependencies
+
+Release binaries after 0.2.0 carry the list of crates compiled into them, embedded with [cargo-auditable](https://github.com/rust-secure-code/cargo-auditable). Scanners such as `cargo audit`, Trivy, Grype and Syft read it from the binary itself:
+
+```bash
+cargo install --locked cargo-audit
+cargo audit bin pqsign
+```
+
+Each of these releases also has a CycloneDX SBOM per platform, `pqsign-<target>.cdx.json`, signed like the archives:
+
+```bash
+curl -LO https://github.com/pscheid92/pqsign/releases/latest/download/pqsign-x86_64-unknown-linux-gnu.cdx.json
+curl -LO https://github.com/pscheid92/pqsign/releases/latest/download/pqsign-x86_64-unknown-linux-gnu.cdx.json.pqsig
+pqsign verify pqsign-x86_64-unknown-linux-gnu.cdx.json -p release.key.pub
+```

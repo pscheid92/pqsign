@@ -1,2 +1,5 @@
 # Fixture files are compared byte for byte; never convert their line endings.
 tests/fixtures/** -text
+
+# Shell scripts also run in Git Bash on the Windows release runner, where CRLF line endings would break them.
+*.sh text eol=lf
