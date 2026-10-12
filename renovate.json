@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "schedule:weekly"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "customManagers": [
+    {
+      "description": "Build tools the release workflow installs, and the rebuild instructions that must name the same versions. cargo install takes an exact version, not a Cargo requirement.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/release\\.yml$/",
+        "/^docs/install\\.md$/"
+      ],
+      "matchStrings": [
+        "(?<depName>cargo-(?:auditable|cyclonedx))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "crate",
+      "versioningTemplate": "semver"
+    },
+    {
+      "description": "The Rust version in the rebuild instructions, which must match the one the release workflow builds with",
+      "customType": "regex",
+      "managerFilePatterns": ["/^docs/install\\.md$/"],
+      "matchStrings": [
+        "rustup toolchain install (?<currentValue>\\d+\\.\\d+\\.\\d+)",
+        "RUSTUP_TOOLCHAIN=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "rust",
+      "datasourceTemplate": "rust-version",
+      "versioningTemplate": "rust-release-channel"
+    },
+    {
+      "description": "The actionlint image, which CI starts with docker run rather than a uses: line",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
+      "matchStrings": [
+        "(?<depName>rhysd/actionlint):(?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "dtolnay/rust-toolchain has no version tags; the workflows pin a commit of its stable branch",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.yml$/"],
+      "matchStrings": [
+        "dtolnay/rust-toolchain@(?<currentDigest>[a-f0-9]{40}) # (?<currentValue>stable) branch"
+      ],
+      "depNameTemplate": "dtolnay/rust-toolchain",
+      "packageNameTemplate": "https://github.com/dtolnay/rust-toolchain",
+      "datasourceTemplate": "git-refs"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Crate updates Cargo considers compatible come in one pull request. Breaking ones, which include a new minor version of a 0.x crate such as most of the cryptography crates, come one at a time.",
+      "matchManagers": ["cargo"],
+      "matchIsBreaking": false,
+      "groupName": "compatible crate updates"
+    }
+  ]
+}
