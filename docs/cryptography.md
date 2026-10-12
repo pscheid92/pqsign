@@ -220,6 +220,8 @@ pqsign itself has not been independently audited. It relies on these crates for 
 
 No ML-DSA implementation in Rust is both audited and stable yet. RustCrypto's [`ml-dsa`](https://github.com/RustCrypto/signatures/tree/master/ml-dsa) has never been independently audited, and [`libcrux-ml-dsa`](https://github.com/cryspen/libcrux) is partly formally verified but still pre-release, with a 2026 advisory for accepting invalid signatures ([RUSTSEC-2026-0077](https://rustsec.org/advisories/RUSTSEC-2026-0077.html)).
 
+pqsign's tests run [Wycheproof's ML-DSA-65 vectors](../tests/vectors/wycheproof/README.md) against `fips204`. It passes all 210 verification cases, including the malformed hint encodings and norm violations that the other two crates accepted, and signs exactly as expected from the expanded secret keys pqsign stores. It does sign with two malformed secret keys it should reject; pqsign never creates such a key.
+
 This is what the hybrid design is for. A signature is accepted only when both the Ed25519 and the ML-DSA-65 signature verify, so a flaw in the young ML-DSA implementation does not on its own let anyone forge a signature, and neither does a flaw in Ed25519.
 
 Vulnerabilities are reported as described in [SECURITY.md](../SECURITY.md).

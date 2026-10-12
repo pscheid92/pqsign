@@ -9,7 +9,7 @@ repository = "https://github.com/pscheid92/pqsign"
 readme = "README.md"
 keywords = ["cryptography", "post-quantum", "signing", "ed25519", "ml-dsa"]
 categories = ["command-line-utilities", "cryptography"]
-exclude = ["docs/", "benches/", "scripts/", ".github/", ".idea/", "release.key.pub"]
+exclude = ["docs/", "benches/", "scripts/", "tests/vectors/", ".github/", ".idea/", "release.key.pub"]
 
 [dependencies]
 ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
@@ -31,6 +31,7 @@ tempfile = "3"
 assert_cmd = "2.2.0"
 criterion = "0.8"
 predicates = "3.1.4"
+serde_json = "1"
 
 # Unoptimized, Argon2id at the default 256 MiB takes about 5 s instead of 0.4 s. Tests that run `generate` keep the
 # defaults, and debug builds are what people try out.
