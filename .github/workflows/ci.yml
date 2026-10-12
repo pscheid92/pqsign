@@ -20,7 +20,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
-# Actions are pinned to commit SHAs; Dependabot keeps them current (.github/dependabot.yml).
+# Actions are pinned to commit SHAs; Renovate keeps them current (renovate.json).
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -115,6 +115,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Run with docker run, because a `uses: docker://` image is pulled before the first step, so before the login.
-      # actionlint 1.7.12. Dependabot does not update this image; bump the digest by hand with new releases.
+      # The tag says which release the digest is; Docker uses the digest. Renovate updates both.
       - name: Lint workflows
-        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color

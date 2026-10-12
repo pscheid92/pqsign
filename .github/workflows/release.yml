@@ -24,7 +24,7 @@ env:
   CARGO_TERM_COLOR: always
   DRY_RUN: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
 
-# Actions are pinned to commit SHAs; Dependabot keeps them current (.github/dependabot.yml).
+# Actions are pinned to commit SHAs; Renovate keeps them current (renovate.json).
 jobs:
   version:
     runs-on: ubuntu-latest
@@ -74,8 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # An exact Rust version, so a release does not depend on the stable release of the day. Dependabot does not
-      # raise it; docs/releasing.md says when to.
+      # An exact Rust version, so a release does not depend on the stable release of the day. Renovate proposes new
+      # ones; docs/releasing.md says when to merge them.
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
         with:
           toolchain: "1.99.0"

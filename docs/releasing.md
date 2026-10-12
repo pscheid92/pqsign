@@ -39,7 +39,7 @@ A failing audit blocks the release. CI also runs every Monday, so a new advisory
 
 ## Rust version
 
-Release binaries are built with the Rust version in the build job of `release.yml`, not with whatever is stable on release day. Dependabot does not raise it, nor the pinned versions of cargo-auditable and cargo-cyclonedx in the same job. Before a release, raise it to the current stable in its own commit if it is behind, and let the dry run on that pull request build with it.
+Release binaries are built with the Rust version in the build job of `release.yml`, not with whatever is stable on release day. When a new Rust version comes out, Renovate proposes it in its own pull request, which also updates the rebuild instructions in `docs/install.md`; the dry run on that pull request builds the release with it. Merge it before a release if the release should use it. Renovate does the same for cargo-auditable and cargo-cyclonedx, which the same job installs.
 
 ## Dry runs
 
