@@ -853,6 +853,7 @@ dependencies = [
  "predicates",
  "rand",
  "rpassword",
+ "serde_json",
  "tempfile",
  "thiserror",
  "zeroize",
