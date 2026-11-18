@@ -8,14 +8,6 @@ use fips204::ml_dsa_65;
 use fips204::traits::{SerDes, Signer, Verifier};
 use serde_json::Value;
 
-/// fips204 0.4.6 signs with these malformed secret keys instead of rejecting them. pqsign never reads such a key:
-/// its secret keys come from fips204's own key generation and are stored encrypted and authenticated. When a fips204
-/// release rejects them, the signing test fails and the exception can go.
-const SIGNS_WITH_MALFORMED_KEY: [u64; 2] = [
-    56, // private key with s1 vector out of range
-    57, // private key with s2 vector out of range
-];
-
 /// The published crate leaves the vectors out, so the tests skip themselves there.
 fn load(name: &str) -> Option<Value> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/vectors/wycheproof").join(name);
@@ -87,8 +79,9 @@ fn test_mldsa65_verification_vectors() {
     );
 }
 
-/// Each valid case must give exactly Wycheproof's signature. Cases for ML-DSA's internal interface, which pqsign
-/// does not use, and the one randomized case are skipped.
+/// Each valid case must give exactly Wycheproof's signature, and every invalid secret key must be rejected,
+/// including the two whose s1 or s2 is out of range, which fips204 accepted before 0.5. Cases for ML-DSA's
+/// internal interface, which pqsign does not use, and the one randomized case are skipped.
 #[test]
 fn test_mldsa65_signing_vectors() {
     let Some(vectors) = load("mldsa_65_sign_noseed_test.json") else { return };
@@ -104,13 +97,6 @@ fn test_mldsa65_signing_vectors() {
         checked += 1;
 
         let signature = sign(&hex(&group["privateKey"]), &hex(&case["msg"]), &hex(&case["ctx"]));
-        if SIGNS_WITH_MALFORMED_KEY.contains(&case["tcId"].as_u64().unwrap()) {
-            if signature.is_none() {
-                let failure = format!("{}: now rejected; remove it from SIGNS_WITH_MALFORMED_KEY", describe(case));
-                failures.push(failure);
-            }
-            continue;
-        }
         let correct = match signature {
             Some(signature) => case["result"] == "valid" && signature[..] == hex(&case["sig"])[..],
             None => case["result"] != "valid",

@@ -212,7 +212,7 @@ pqsign itself has not been independently audited. It relies on these crates for 
 
 | Purpose | Crate | Version | Review status |
 |---|---|---|---|
-| ML-DSA-65 | [`fips204`](https://github.com/integritychain/fips204) | 0.4.6 | No published audit. Its maintainers call it experimental, with constant-time behavior targeted at the source-code level only. |
+| ML-DSA-65 | [`fips204`](https://github.com/integritychain/fips204) | 0.5.0 | No published audit. Its maintainers state that key generation and signing are constant-time within each attempt, checked by source review and statistical timing measurements, at the source-code level only. |
 | Ed25519 | [`ed25519-dalek`](https://github.com/dalek-cryptography/curve25519-dalek), `curve25519-dalek` | 3.0, 5.0 | [Quarkslab reviewed](https://blog.quarkslab.com/security-audit-of-dalek-libraries.html) `curve25519-dalek` in 2019 and looked briefly at `ed25519-dalek`; both have had major releases since. A timing issue in `curve25519-dalek` was found in 2024 and fixed ([RUSTSEC-2024-0344](https://rustsec.org/advisories/RUSTSEC-2024-0344.html)). |
 | Key encryption | [`chacha20poly1305`](https://github.com/RustCrypto/AEADs) | 0.11 | [NCC Group reviewed](https://www.nccgroup.com/research/public-report-rustcrypto-aesgcm-and-chacha20pluspoly1305-implementation-review/) the late-2019 implementation in 2020. |
 | Key derivation | [`argon2`](https://github.com/RustCrypto/password-hashes) | 0.6 | No published audit found. |
@@ -220,7 +220,7 @@ pqsign itself has not been independently audited. It relies on these crates for 
 
 No ML-DSA implementation in Rust is both audited and stable yet. RustCrypto's [`ml-dsa`](https://github.com/RustCrypto/signatures/tree/master/ml-dsa) has never been independently audited, and [`libcrux-ml-dsa`](https://github.com/cryspen/libcrux) is partly formally verified but still pre-release, with a 2026 advisory for accepting invalid signatures ([RUSTSEC-2026-0077](https://rustsec.org/advisories/RUSTSEC-2026-0077.html)).
 
-pqsign's tests run [Wycheproof's ML-DSA-65 vectors](../tests/vectors/wycheproof/README.md) against `fips204`. It passes all 210 verification cases, including the malformed hint encodings and norm violations that the other two crates accepted, and signs exactly as expected from the expanded secret keys pqsign stores. It does sign with two malformed secret keys it should reject; pqsign never creates such a key.
+pqsign's tests run [Wycheproof's ML-DSA-65 vectors](../tests/vectors/wycheproof/README.md) against `fips204`. It passes all 210 verification cases, including the malformed hint encodings and norm violations that the other two crates accepted, and signs exactly as expected from the expanded secret keys pqsign stores. It rejects every malformed secret key in the vectors; before 0.5 it accepted two whose coefficients were out of range, which pqsign never creates.
 
 This is what the hybrid design is for. A signature is accepted only when both the Ed25519 and the ML-DSA-65 signature verify, so a flaw in the young ML-DSA implementation does not on its own let anyone forge a signature, and neither does a flaw in Ed25519.
 

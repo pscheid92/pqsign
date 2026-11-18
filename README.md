@@ -146,7 +146,7 @@ All binary files start with magic bytes `PQSN`, a format version, a file type by
 
 ## Security
 
-pqsign has not been independently audited, and the ML-DSA-65 implementation it uses, `fips204`, describes itself as experimental. Both signatures must verify, so a flaw in one implementation does not on its own let anyone forge a signature. See [implementation status](docs/cryptography.md#implementation-status) for the review history of each dependency, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+pqsign has not been independently audited, and the ML-DSA-65 implementation it uses, `fips204`, has no published audit either. Both signatures must verify, so a flaw in one implementation does not on its own let anyone forge a signature. See [implementation status](docs/cryptography.md#implementation-status) for the review history of each dependency, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
 ## License
 
