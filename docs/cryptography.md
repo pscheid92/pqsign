@@ -206,6 +206,48 @@ The KDF byte follows libsodium's numbering, in which 0x01 is Argon2i and 0x02 is
 
 Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes. The version in the prefix must match the format version byte in that header, which is authoritative; pqsign rejects public keys where the two differ.
 
+## Relation to Standards
+
+pqsign's format predates the IETF's standards for hybrid post-quantum signatures, and it follows none of them byte for byte. Three documents from 2026 cover the same ground:
+
+- [RFC 10073](https://www.rfc-editor.org/rfc/rfc10073), Composite ML-DSA (Standards Track, November 2026), defines composite signature algorithms for X.509. One of them, `id-MLDSA65-Ed25519-SHA512`, combines the same two algorithms as pqsign.
+- [RFC 9980](https://www.rfc-editor.org/rfc/rfc9980), Post-Quantum Cryptography in OpenPGP (Standards Track, June 2026), makes ML-DSA-65+Ed25519 the signature algorithm every implementation must support.
+- [RFC 9955](https://www.rfc-editor.org/rfc/rfc9955), Hybrid Signature Spectrums (Informational, July 2026), defines no algorithm. It gives the vocabulary for comparing hybrid signatures, used below.
+
+### Construction compared
+
+| | pqsign v2 | RFC 10073, ML-DSA-65 + Ed25519 | RFC 9980, ML-DSA-65+Ed25519 |
+|---|---|---|---|
+| How the two signatures relate | Nested: ML-DSA-65 also signs the Ed25519 signature | Parallel: both sign the same message representative `M'` | Parallel: both sign the same OpenPGP signature digest |
+| What is hashed | The file, with BLAKE2b-512; the hash goes into the record | The message, with SHA-512, inside `M'` | The OpenPGP signature data, with a hash of at least 256 bits |
+| Ed25519 signs | `"pqsign-v2-ed25519" \|\| record` | `M'`, which starts with the prefix `"CompositeAlgorithmSignatures2025"` | The digest; the EdDSA context is empty |
+| ML-DSA-65 signs | `record \|\| ed25519_sig`, context `"pqsign-v2-mldsa65"` | `M'`, context `"COMPSIG-MLDSA65-Ed25519-SHA512"` | The digest; the context is empty |
+| ML-DSA variant | Pure ML-DSA, hedged | Pure ML-DSA | Pure ML-DSA, hedged |
+| ML-DSA secret key stored as | The expanded key, 4032 bytes | The 32-byte seed | The 32-byte seed |
+| Component order in keys and signatures | Ed25519 first | ML-DSA first | Ed25519 first |
+
+All three accept a signature only if both components verify, and all three sign a message that holds a hash rather than the raw data. What a signature asserts besides the data is up to the application in RFC 10073; pqsign's record makes both algorithms sign the key ID, the signer's fingerprint and the trusted comment, and RFC 9980 covers its metadata through the OpenPGP signature packet.
+
+### Non-separability
+
+RFC 9955 describes how hard it is to turn a hybrid signature back into a signature of one algorithm alone:
+
+- **Weak non-separability**: an attacker cannot remove one component signature without leaving evidence behind, in the message, the signature or the protocol.
+- **Strong non-separability**: an attacker cannot take a hybrid signature and its message and produce a valid signature of one component at all.
+
+RFC 9955 notes that a nested construction, where the second algorithm signs the message together with the first signature, can reach weak non-separability, depending on whether the inner or the outer signature is stripped.
+
+pqsign has weak non-separability for both components. If the ML-DSA-65 signature is removed, the Ed25519 signature that remains signs a message starting with `"pqsign-v2-ed25519"` and holding a pqsign record. If the Ed25519 signature is removed, the ML-DSA-65 signature that remains signs a message that contains the Ed25519 signature, under the context `"pqsign-v2-mldsa65"`. pqsign does not have strong non-separability: anyone holding a signature can extract a valid ML-DSA-65 signature over `record || ed25519_sig` with pqsign's context. RFC 10073 claims weak non-separability for both of its components and only a limited form of the strong property for the ML-DSA component, relying on its fixed prefix and context in the same way. RFC 9980 instead relies on OpenPGP's signature packet, which includes the algorithm ID in the signed data.
+
+Nesting goes one step further than both standards in one respect: ML-DSA-65 commits to the exact Ed25519 signature bytes, so even a different valid Ed25519 signature over the same record does not verify.
+
+### Possible alignment
+
+These are directions a future format version could take, not decisions:
+
+- **Store ML-DSA-65 secret keys as the 32-byte seed**, as FIPS 204, RFC 10073 and RFC 9980 do. Seeds are smaller and cannot be malformed, unlike expanded keys; `fips204` accepted malformed expanded keys before 0.5. It needs a new secret key format version; existing key files would keep working.
+- **Use RFC 10073's ML-DSA-65 + Ed25519 algorithm as a new signature suite**, with pqsign's record as the message. The construction would be one that reviewers recognize and that can be checked against the RFC's test vectors, at the cost of the nesting and of a new signature format.
+
 ## Implementation Status
 
 pqsign itself has not been independently audited. It relies on these crates for its cryptography:
