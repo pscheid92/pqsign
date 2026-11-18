@@ -68,7 +68,7 @@ pqsign sign document.pdf -t "release v1.0"       # custom trusted comment
 pqsign sign document.pdf -x document.pdf.sig      # custom signature path
 ```
 
-Every signature carries a trusted comment: the signing time and the file's name, followed by your `-t` text. It is limited to 1024 bytes and may not contain control characters other than tab.
+Every signature carries a trusted comment: the signing time and the file's name, followed by your `-t` text. It is limited to 1024 bytes and may not contain control characters other than tab, or the Unicode characters that override or isolate text direction (U+202A to U+202E and U+2066 to U+2069).
 
 ### Non-interactive use
 
@@ -132,7 +132,7 @@ Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **
 | Secret key | Binary (encrypted) | `.key` |
 | Signature | Binary | `.pqsig` |
 
-All binary files start with magic bytes `PQSN`, a format version, and an 8-byte key ID for cross-referencing.
+All binary files start with magic bytes `PQSN`, a format version, a file type byte, and an 8-byte key ID for cross-referencing.
 
 ## Documentation
 
@@ -142,6 +142,7 @@ All binary files start with magic bytes `PQSN`, a format version, and an 8-byte 
 - [Brute-force resistance](docs/brute-force-resistance.md) — password cracking analysis with CPU and GPU estimates
 - [KDF comparison](docs/kdf-comparison.md) — Argon2id parameter trade-offs
 - [Releasing](docs/releasing.md) — how releases are built, signed, verified and published
+- [Architecture](ARCHITECTURE.md) — how the code is organized and the rules that hold across it
 
 ## Security
 
