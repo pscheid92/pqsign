@@ -38,7 +38,25 @@ pub fn read(path: &Path, password: Zeroizing<String>) -> Result<SecretKey, Error
 /// depends on the format version.
 pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>) -> Result<SecretKey, Error> {
     let data = file::read(path)?;
-    let mut r = Cursor::new(data.as_slice());
+    let parsed = parse(&data)?;
+    let password = password_fn(&parsed.kdf)?;
+    open(&parsed, &password)
+}
+
+// -- Shared helpers --
+
+/// Everything in a secret key file that can be checked without the password.
+struct Parsed<'a> {
+    header: FileHeader,
+    kdf: Kdf,
+    salt: [u8; ARGON2_SALT_LEN],
+    nonce: [u8; XCHACHA20_NONCE_LEN],
+    ciphertext: &'a [u8],
+}
+
+/// Checks the header, the KDF parameters and the ciphertext length for the format version.
+fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
+    let mut r = Cursor::new(data);
     let header = read_and_validate_header(&mut r)?;
 
     let kdf = kdf::read_from(&mut r)?;
@@ -47,17 +65,25 @@ pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing
     let ciphertext = &data[r.position() as usize..];
     check_ciphertext_len(header.version, ciphertext.len())?;
 
-    let password = password_fn(&kdf)?;
-    let plaintext = decrypt_payload(ciphertext, &password, &kdf, &salt, &nonce)?;
+    Ok(Parsed {
+        header,
+        kdf,
+        salt,
+        nonce,
+        ciphertext,
+    })
+}
 
-    match header.version {
-        1 => decode_v1(&plaintext, &header),
-        2 => decode_v2(&plaintext, &header),
+/// Decrypts and decodes, so the key-ID check of the file's format version runs.
+fn open(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<SecretKey, Error> {
+    let plaintext = decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)?;
+
+    match parsed.header.version {
+        1 => decode_v1(&plaintext, &parsed.header),
+        2 => decode_v2(&plaintext, &parsed.header),
         other => Err(unsupported_version(other)),
     }
 }
-
-// -- Shared helpers --
 
 fn read_and_validate_header(r: &mut impl std::io::Read) -> Result<FileHeader, Error> {
     let header = FileHeader::read(r)?;
@@ -122,32 +148,31 @@ pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: 
     payload.extend_from_slice(seeds.mldsa65().as_bytes());
 
     let key_id = seeds.key_pair().public_key.key_id();
-    let (salt, nonce, encrypted) = encrypt_payload(&payload, password, kdf)?;
+    seal(&FileHeader::new(FileType::SecretKey, key_id), &payload, password, kdf)
+}
+
+/// Writes `header`, then the sealed part of the file: the KDF block, a fresh salt and nonce, and `plaintext`
+/// encrypted under `password`. The KDF parameters are checked first, so pqsign never writes a key it would refuse
+/// to read; the public entry points check them before any other work as well.
+fn seal(header: &FileHeader, plaintext: &[u8], password: &Zeroizing<String>, kdf: &Kdf) -> Result<Vec<u8>, Error> {
+    kdf.check()?;
+
+    let mut rng = rand::rng();
+    let mut salt = [0u8; ARGON2_SALT_LEN];
+    rng.fill_bytes(&mut salt);
+    let mut nonce = [0u8; XCHACHA20_NONCE_LEN];
+    rng.fill_bytes(&mut nonce);
+
+    let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), &salt, &nonce)?;
 
     let mut buf = Vec::new();
-    FileHeader::new(FileType::SecretKey, key_id).write_to(&mut buf)?;
+    header.write_to(&mut buf)?;
     kdf::write_to(kdf, &mut buf)?;
     super::write_all(&mut buf, &salt)?;
     super::write_all(&mut buf, &nonce)?;
     super::write_all(&mut buf, &encrypted)?;
 
     Ok(buf)
-}
-
-type EncryptedPayload = ([u8; ARGON2_SALT_LEN], [u8; XCHACHA20_NONCE_LEN], Vec<u8>);
-
-fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>, kdf: &Kdf) -> Result<EncryptedPayload, Error> {
-    let mut rng = rand::rng();
-
-    let mut salt = [0u8; ARGON2_SALT_LEN];
-    rng.fill_bytes(&mut salt);
-
-    let mut nonce = [0u8; XCHACHA20_NONCE_LEN];
-    rng.fill_bytes(&mut nonce);
-
-    let ct = crypto::encrypt(payload, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), &salt, &nonce)?;
-
-    Ok((salt, nonce, ct))
 }
 
 // -- Read helpers --
