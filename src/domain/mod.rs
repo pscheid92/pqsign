@@ -4,9 +4,9 @@ pub mod signature;
 mod types;
 
 pub use fingerprint::Fingerprint;
-pub use keys::{KeyPair, PublicKey, SecretKey};
+pub use keys::{KeyPair, PublicKey, SecretKey, SecretSeeds};
 pub use signature::{Signature, SignatureFormat};
-pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Signature};
+pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Seed, MlDsa65Signature};
 
 use std::fs::File;
 use std::io::{BufReader, Read};
@@ -138,6 +138,8 @@ mod tests {
         wiped_on_drop::<SecretKey>();
         wiped_on_drop::<Ed25519SecretKey>();
         wiped_on_drop::<MlDsa65SecretKey>();
+        wiped_on_drop::<MlDsa65Seed>();
+        wiped_on_drop::<SecretSeeds>();
         wiped_on_drop::<ed25519_dalek::SigningKey>();
         wiped_on_drop::<fips204::ml_dsa_65::PrivateKey>();
     }
@@ -150,6 +152,12 @@ mod tests {
         assert_eq!(format!("{ed25519:?}"), "Ed25519SecretKey([REDACTED])");
         assert_eq!(format!("{mldsa65:?}"), "MlDsa65SecretKey([REDACTED])");
         assert_eq!(format!("{ed25519:#?}"), "Ed25519SecretKey([REDACTED])");
+
+        let seed = MlDsa65Seed::from_bytes([0x41; MlDsa65Seed::LEN]);
+        assert_eq!(format!("{seed:?}"), "MlDsa65Seed([REDACTED])");
+        let seeds = SecretSeeds::from_parts(ed25519, seed);
+        assert_eq!(format!("{seeds:?}"), "SecretSeeds([REDACTED])");
+        assert_eq!(format!("{seeds:#?}"), "SecretSeeds([REDACTED])");
     }
 
     #[test]
@@ -183,6 +191,79 @@ mod tests {
         assert_eq!(pk.key_id(), pk.fingerprint().key_id());
         assert_eq!(pk.key_id().as_bytes(), &pk.fingerprint().as_bytes()[..KeyId::LEN]);
         assert_eq!(sk.key_id(), pk.key_id());
+    }
+
+    fn seeds(ed25519: [u8; 32], mldsa65: [u8; 32]) -> SecretSeeds {
+        SecretSeeds::from_parts(Ed25519SecretKey::from_bytes(ed25519), MlDsa65Seed::from_bytes(mldsa65))
+    }
+
+    fn hex32(text: &str) -> [u8; 32] {
+        std::array::from_fn(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).unwrap())
+    }
+
+    /// Secret key format v2 stores only the seeds, so the same seeds must always give the same keys.
+    #[test]
+    fn test_same_seeds_give_the_same_key_pair() {
+        let a = seeds([1; 32], [2; 32]).key_pair();
+        let b = seeds([1; 32], [2; 32]).key_pair();
+        assert_eq!(a.public_key.fingerprint(), b.public_key.fingerprint());
+        assert_eq!(a.public_key.ed25519.to_bytes(), b.public_key.ed25519.to_bytes());
+        assert_eq!(a.public_key.mldsa65.clone().into_bytes(), b.public_key.mldsa65.clone().into_bytes());
+        assert_eq!(
+            crate::format::encode_public_key(&a.public_key).unwrap(),
+            crate::format::encode_public_key(&b.public_key).unwrap()
+        );
+
+        let other = seeds([1; 32], [3; 32]).key_pair();
+        assert_ne!(other.public_key.fingerprint(), a.public_key.fingerprint());
+    }
+
+    #[test]
+    fn test_seed_key_pair_key_id_is_fingerprint_prefix() {
+        let (sk, pk) = seeds([5; 32], [6; 32]).key_pair().into_parts();
+        assert_eq!(pk.key_id(), pk.fingerprint().key_id());
+        assert_eq!(sk.key_id(), pk.key_id());
+        assert_eq!(sk.fingerprint(), pk.fingerprint());
+    }
+
+    #[test]
+    fn test_seed_key_pair_signs_and_verifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, b"signed with keys from seeds").unwrap();
+        let (sk, pk) = SecretSeeds::generate().key_pair().into_parts();
+        sk.sign(&file, "seeds").unwrap().verify(&pk, &file).unwrap();
+    }
+
+    #[test]
+    fn test_generated_seeds_differ() {
+        let a = SecretSeeds::generate().key_pair().public_key.fingerprint();
+        let b = SecretSeeds::generate().key_pair().public_key.fingerprint();
+        assert_ne!(a, b);
+    }
+
+    /// Pins the Ed25519 half of the seed derivation to the private-to-public examples of RFC 8032 Section 7.1,
+    /// TEST 1 to 3. The ML-DSA-65 half is pinned by Wycheproof's seed vectors in tests/mldsa_vectors.rs.
+    #[test]
+    fn test_ed25519_seed_derivation_matches_rfc_8032() {
+        let vectors = [
+            (
+                "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+            ),
+            (
+                "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+                "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+            ),
+            (
+                "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+                "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+            ),
+        ];
+        for (secret_key, public_key) in vectors {
+            let pair = seeds(hex32(secret_key), [0; 32]).key_pair();
+            assert_eq!(pair.public_key.ed25519.to_bytes(), hex32(public_key), "RFC 8032 secret key {secret_key}");
+        }
     }
 
     #[test]

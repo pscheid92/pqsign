@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 use pqsign::commands::{generate, inspect, sign, verify};
-use pqsign::domain::{KeyPair, SignatureFormat};
+use pqsign::domain::{KeyPair, SecretSeeds, SignatureFormat};
 use pqsign::format::{self, Kdf};
 use pqsign::password::PasswordSource;
 
@@ -280,9 +280,9 @@ fn test_write_key_pair_without_overwrite_never_replaces_files() {
     fs::write(&sk_path, b"existing").unwrap();
 
     // Skips the existence check in `generate`, as if the file appeared after it.
-    let err = format::write_key_pair(&sk_path, &pk_path, &KeyPair::new(), pw("test-pw"), false, &TEST_KDF).unwrap_err();
+    let result = format::write_key_pair(&sk_path, &pk_path, &SecretSeeds::generate(), pw("test-pw"), false, &TEST_KDF);
 
-    assert!(matches!(err, pqsign::errors::Error::FileExists(_)));
+    assert!(matches!(result, Err(pqsign::errors::Error::FileExists(_))));
     assert_eq!(fs::read(&sk_path).unwrap(), b"existing");
     assert_eq!(
         file_names(dir.path()),

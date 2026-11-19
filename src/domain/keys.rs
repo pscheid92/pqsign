@@ -5,7 +5,7 @@ use ed25519_dalek::Signer;
 use fips204::ml_dsa_65;
 use fips204::traits::{KeyGen, SerDes, Signer as MlDsaSigner};
 use rand::Rng;
-use zeroize::{ZeroizeOnDrop, Zeroizing};
+use zeroize::ZeroizeOnDrop;
 
 use super::fingerprint::Fingerprint;
 use super::prehash_file;
@@ -25,16 +25,59 @@ impl Default for KeyPair {
 }
 
 impl KeyPair {
-    const ED25519_SEED_LEN: usize = 32;
-    const MLDSA65_SEED_LEN: usize = 32;
-
-    /// Generates a key pair. Its key ID is the start of its fingerprint, so a key with a chosen ID cannot be
-    /// made without about 2^64 attempts. Keys from pqsign 0.1 have random key IDs and keep working.
+    /// Generates a key pair from fresh seeds. Its key ID is the start of its fingerprint, so a key with a chosen
+    /// ID cannot be made without about 2^64 attempts. Keys from pqsign 0.1 have random key IDs and keep working.
     pub fn new() -> Self {
-        let mut rng = rand::rng();
+        SecretSeeds::generate().key_pair()
+    }
 
-        let (ed25519_secret_key, ed25519_public_key) = Self::gen_ed25519_keys(&mut rng);
-        let (mldsa65_secret_key, mldsa65_public_key) = Self::gen_mldsa65_keys(&mut rng);
+    pub fn into_parts(self) -> (SecretKey, PublicKey) {
+        (self.secret_key, self.public_key)
+    }
+}
+
+/// The two 32-byte values a key pair is generated from: the RFC 8032 Ed25519 private key, which is itself a seed,
+/// and FIPS 204's ML-DSA-65 seed ξ. Each is as sensitive as the key it makes: the whole key pair is rebuilt from
+/// them. Wiped on drop, never printed, and neither cloned nor compared.
+#[derive(ZeroizeOnDrop)]
+pub struct SecretSeeds {
+    ed25519: Ed25519SecretKey,
+    mldsa65: MlDsa65Seed,
+}
+
+impl SecretSeeds {
+    /// Fresh seeds from the operating system's random generator, read straight into the wiped byte types.
+    pub fn generate() -> Self {
+        let mut rng = rand::rng();
+        let mut ed25519 = Ed25519SecretKey([0u8; Ed25519SecretKey::LEN]);
+        rng.fill_bytes(&mut ed25519.0);
+        let mut mldsa65 = MlDsa65Seed([0u8; MlDsa65Seed::LEN]);
+        rng.fill_bytes(&mut mldsa65.0);
+        SecretSeeds { ed25519, mldsa65 }
+    }
+
+    /// Every 32-byte value is a valid seed, so this cannot fail.
+    pub fn from_parts(ed25519: Ed25519SecretKey, mldsa65: MlDsa65Seed) -> Self {
+        SecretSeeds { ed25519, mldsa65 }
+    }
+
+    pub fn ed25519(&self) -> &Ed25519SecretKey {
+        &self.ed25519
+    }
+
+    pub fn mldsa65(&self) -> &MlDsa65Seed {
+        &self.mldsa65
+    }
+
+    /// Runs the standard key generation of each algorithm: RFC 8032's for Ed25519 and FIPS 204's
+    /// ML-DSA.KeyGen_internal for ML-DSA-65. Both keys get the start of their fingerprint as key ID.
+    ///
+    /// This derivation is part of secret key format v2, which stores only the seeds: changing it would turn every
+    /// such key file into a different key. A different derivation needs a new secret key format version.
+    pub fn key_pair(&self) -> KeyPair {
+        let ed25519_secret_key = ed25519::SigningKey::from_bytes(self.ed25519.as_bytes());
+        let ed25519_public_key = ed25519_secret_key.verifying_key();
+        let (mldsa65_public_key, mldsa65_secret_key) = ml_dsa_65::KG::keygen_from_seed(self.mldsa65.as_bytes());
         let key_id = Fingerprint::of(&ed25519_public_key, &mldsa65_public_key).key_id();
 
         let secret_key = SecretKey {
@@ -47,30 +90,13 @@ impl KeyPair {
             ed25519: ed25519_public_key,
             mldsa65: mldsa65_public_key,
         };
-
         KeyPair { secret_key, public_key }
     }
+}
 
-    pub fn into_parts(self) -> (SecretKey, PublicKey) {
-        (self.secret_key, self.public_key)
-    }
-
-    fn gen_ed25519_keys(rng: &mut impl Rng) -> (ed25519::SigningKey, ed25519::VerifyingKey) {
-        let mut seed = Zeroizing::new([0u8; Self::ED25519_SEED_LEN]);
-        rng.fill_bytes(seed.as_mut());
-
-        let secret_key = ed25519::SigningKey::from_bytes(&seed);
-        let public_key = secret_key.verifying_key();
-        (secret_key, public_key)
-    }
-
-    /// The seed is as sensitive as the key: ML-DSA keys can be regenerated from it.
-    fn gen_mldsa65_keys(rng: &mut impl Rng) -> (ml_dsa_65::PrivateKey, ml_dsa_65::PublicKey) {
-        let mut seed = Zeroizing::new([0u8; Self::MLDSA65_SEED_LEN]);
-        rng.fill_bytes(seed.as_mut());
-
-        let (public_key, secret_key) = ml_dsa_65::KG::keygen_from_seed(&seed);
-        (secret_key, public_key)
+impl std::fmt::Debug for SecretSeeds {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretSeeds([REDACTED])")
     }
 }
 

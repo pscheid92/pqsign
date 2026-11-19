@@ -6,7 +6,7 @@ use zeroize::Zeroizing;
 use super::file::{self, Access, Staged};
 use super::kdf::Kdf;
 use super::{public_key, secret_key};
-use crate::domain::KeyPair;
+use crate::domain::{PublicKey, SecretSeeds};
 use crate::errors::Error;
 
 /// Writes a new key pair so that a failure never destroys an existing secret key.
@@ -15,23 +15,26 @@ use crate::errors::Error;
 /// renamed into place first and the secret key last: if the final rename fails, the old secret key survives.
 /// Without `overwrite`, existing files are never replaced, and a public key written by this call is removed
 /// again when the secret key cannot be placed. Missing directories are created, accessible by the owner only.
+///
+/// The secret key is written in format v2. Returns the public key that was written, so callers show exactly that.
 pub fn write_key_pair(
     secret_path: &Path,
     public_path: &Path,
-    keypair: &KeyPair,
+    seeds: &SecretSeeds,
     password: Zeroizing<String>,
     overwrite: bool,
     kdf: &Kdf,
-) -> Result<(), Error> {
-    let secret_data = secret_key::encode(&keypair.secret_key, &password, kdf)?;
-    let public_text = public_key::encode_text(&keypair.public_key)?;
+) -> Result<PublicKey, Error> {
+    let secret_data = secret_key::encode_v2(seeds, &password, kdf)?;
+    let (_, public) = seeds.key_pair().into_parts();
+    let public_text = public_key::encode_text(&public)?;
 
     file::create_parent_dir(secret_path)?;
     file::create_parent_dir(public_path)?;
     let secret = Staged::new(secret_path, &secret_data, Access::Private)?;
-    let public = Staged::new(public_path, public_text.as_bytes(), Access::Public)?;
+    let public_staged = Staged::new(public_path, public_text.as_bytes(), Access::Public)?;
 
-    let public_dest = public.commit(overwrite)?;
+    let public_dest = public_staged.commit(overwrite)?;
     let secret_dest = match secret.commit(overwrite) {
         Ok(dest) => dest,
         Err(err) => {
@@ -44,5 +47,5 @@ pub fn write_key_pair(
 
     file::sync_parent_dir(&public_dest);
     file::sync_parent_dir(&secret_dest);
-    Ok(())
+    Ok(public)
 }

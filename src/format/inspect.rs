@@ -16,6 +16,7 @@ pub enum FileInfo {
     },
     SecretKey {
         key_id: KeyId,
+        version: u8,
         kdf: Kdf,
     },
     Signature {
@@ -50,8 +51,8 @@ impl fmt::Display for FileInfo {
                 write!(f, "Algorithms:  Ed25519 + ML-DSA-65")
             }
             // The public key material is inside the encrypted payload, so the fingerprint needs the .pub file.
-            FileInfo::SecretKey { key_id, kdf } => {
-                writeln!(f, "Type:        Secret key (encrypted)")?;
+            FileInfo::SecretKey { key_id, version, kdf } => {
+                writeln!(f, "Type:        Secret key (format v{version}, encrypted)")?;
                 writeln!(f, "Key ID:      {key_id}")?;
                 writeln!(f, "Fingerprint: not stored in plain text; inspect the .pub file")?;
                 writeln!(f, "Algorithms:  Ed25519 + ML-DSA-65")?;
@@ -103,7 +104,11 @@ fn inspect_binary(data: &[u8]) -> Result<FileInfo, Error> {
         FileType::PublicKey => public_key_info(&super::public_key::decode(data)?),
         FileType::SecretKey => {
             let kdf = kdf::read_from(&mut r)?;
-            FileInfo::SecretKey { key_id: header.key_id, kdf }
+            FileInfo::SecretKey {
+                key_id: header.key_id,
+                version: header.version,
+                kdf,
+            }
         }
         FileType::Signature => {
             let sig = super::signature::decode(data)?;

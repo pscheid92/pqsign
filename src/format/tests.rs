@@ -4,7 +4,7 @@ use fips204::traits::SerDes;
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::domain::KeyPair;
+use crate::domain::{KeyPair, SecretSeeds};
 use crate::errors::Error;
 
 // -- Codec tests --
@@ -64,7 +64,7 @@ fn test_header_roundtrip() {
 
     let mut r = Cursor::new(buf.as_slice());
     let h2 = FileHeader::read(&mut r).unwrap();
-    assert_eq!(h2.version, 1);
+    assert_eq!(h2.version, 2);
     assert_eq!(h2.file_type, FileType::SecretKey);
     assert_eq!(h2.key_id, key_id);
 }
@@ -185,12 +185,14 @@ const TEST_KDF: Kdf = Kdf::Argon2id {
 fn test_secret_key_roundtrip_with_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
+    let seeds = SecretSeeds::generate();
+    let (sk, _) = seeds.key_pair().into_parts();
 
-    write_secret_key(&path, &sk, pw("test-password"), &TEST_KDF).unwrap();
+    write_secret_key(&path, &seeds, pw("test-password"), &TEST_KDF).unwrap();
     let sk2 = read_secret_key(&path, pw("test-password")).unwrap();
 
     assert_eq!(sk.key_id, sk2.key_id);
+    assert_eq!(sk.fingerprint(), sk2.fingerprint());
     assert_eq!(sk.ed25519.to_bytes(), sk2.ed25519.to_bytes());
     assert_eq!(sk.mldsa65.clone().into_bytes(), sk2.mldsa65.clone().into_bytes());
 }
@@ -199,9 +201,9 @@ fn test_secret_key_roundtrip_with_password() {
 fn test_secret_key_wrong_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
+    let seeds = SecretSeeds::generate();
 
-    write_secret_key(&path, &sk, pw("correct"), &TEST_KDF).unwrap();
+    write_secret_key(&path, &seeds, pw("correct"), &TEST_KDF).unwrap();
     assert!(matches!(read_secret_key(&path, pw("wrong")), Err(Error::WrongPassword)));
 }
 
@@ -209,13 +211,13 @@ fn test_secret_key_wrong_password() {
 fn test_secret_key_records_its_kdf_parameters() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
+    let seeds = SecretSeeds::generate();
 
     let kdf = Kdf::Argon2id {
         mem_limit: 128 * 1024,
         ops_limit: 2,
     };
-    write_secret_key(&path, &sk, pw("test"), &kdf).unwrap();
+    write_secret_key(&path, &seeds, pw("test"), &kdf).unwrap();
 
     let mut recorded = None;
     read_secret_key_with(&path, |kdf| {
@@ -231,7 +233,7 @@ fn test_secret_key_records_its_kdf_parameters() {
 fn test_secret_key_write_rejects_invalid_kdf_parameters() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
+    let seeds = SecretSeeds::generate();
 
     let cases = [
         (2048 * 1024 * 1024, 3, "asks for 2048 MiB of Argon2id memory"),
@@ -240,7 +242,7 @@ fn test_secret_key_write_rejects_invalid_kdf_parameters() {
     ];
     for (mem_limit, ops_limit, expected) in cases {
         let kdf = Kdf::Argon2id { mem_limit, ops_limit };
-        match write_secret_key(&path, &sk, pw("test"), &kdf) {
+        match write_secret_key(&path, &seeds, pw("test"), &kdf) {
             Err(Error::InvalidFormat(msg)) => assert!(msg.contains(expected), "got: {msg}"),
             Err(other) => panic!("expected InvalidFormat, got: {other}"),
             Ok(()) => panic!("expected an error for {kdf:?}"),
@@ -253,12 +255,13 @@ fn test_secret_key_write_rejects_invalid_kdf_parameters() {
 fn test_secret_key_is_raw_binary() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
+    let seeds = SecretSeeds::generate();
 
-    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
+    write_secret_key(&path, &seeds, pw("test"), &TEST_KDF).unwrap();
     let data = std::fs::read(&path).unwrap();
 
     assert_eq!(&data[0..4], b"PQSN");
+    assert!(std::str::from_utf8(&data).is_err(), "a secret key file is binary, not text");
 }
 
 // -- Signature tests --
@@ -423,7 +426,13 @@ fn test_public_key_wrong_file_type_in_binary() {
 
     let key_id = KeyId([1, 2, 3, 4, 5, 6, 7, 8]);
     let mut blob = Vec::new();
-    FileHeader::new(FileType::SecretKey, key_id).write_to(&mut blob).unwrap();
+    // Version 1, so the text form's version check passes and the file type check is what fails.
+    let header = FileHeader {
+        version: 1,
+        file_type: FileType::SecretKey,
+        key_id,
+    };
+    header.write_to(&mut blob).unwrap();
     blob.extend_from_slice(&[0u8; 4096]);
 
     let line = format!("pqsign:v1:{}\n", STANDARD.encode(&blob));
@@ -458,8 +467,7 @@ fn test_read_secret_key_on_signature_file_fails() {
 fn test_read_signature_on_secret_key_file_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
+    write_secret_key(&sk_path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
 
     assert!(matches!(read_signature(&sk_path), Err(Error::InvalidFormat(_))));
 }
@@ -468,8 +476,7 @@ fn test_read_signature_on_secret_key_file_fails() {
 fn test_read_public_key_text_on_secret_key_binary_fails() {
     let dir = tempfile::tempdir().unwrap();
     let sk_path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&sk_path, &sk, pw("test"), &TEST_KDF).unwrap();
+    write_secret_key(&sk_path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
 
     assert!(read_public_key(&sk_path).is_err());
 }
@@ -510,25 +517,109 @@ fn test_inspect_binary_public_key_header_only_fails() {
     assert!(matches!(inspect_file(&path), Err(Error::InvalidFormat(_))));
 }
 
+// -- Secret key format v2 --
+
+/// The format v1 fixture written by pqsign 0.3.1, password `fixture-password`.
+fn v1_fixture() -> Vec<u8> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/secret-keys/v1.key");
+    std::fs::read(path).unwrap()
+}
+
+#[test]
+fn test_secret_key_v2_file_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let seeds = SecretSeeds::generate();
+    write_secret_key(&path, &seeds, pw("test"), &TEST_KDF).unwrap();
+    let data = std::fs::read(&path).unwrap();
+
+    assert_eq!(data.len(), 151);
+    let header = FileHeader::read(&mut Cursor::new(data.as_slice())).unwrap();
+    assert_eq!(header.version, 2);
+    assert_eq!(header.file_type, FileType::SecretKey);
+    assert_eq!(header.key_id, seeds.key_pair().public_key.fingerprint().key_id());
+}
+
+#[test]
+fn test_secret_key_v2_signs_and_verifies() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    let file = dir.path().join("test.txt");
+    std::fs::write(&file, b"test data").unwrap();
+    let seeds = SecretSeeds::generate();
+    write_secret_key(&path, &seeds, pw("test"), &TEST_KDF).unwrap();
+
+    let sk = read_secret_key(&path, pw("test")).unwrap();
+    let (_, pk) = seeds.key_pair().into_parts();
+    sk.sign(&file, "v2").unwrap().verify(&pk, &file).unwrap();
+}
+
+/// The payload length depends on the version, so relabelling a file as the other version fails before the
+/// password prompt, although the header is not authenticated.
+#[test]
+fn test_secret_key_relabelled_version_detected_before_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    write_secret_key(&path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
+    let mut v2_as_v1 = std::fs::read(&path).unwrap();
+    v2_as_v1[4] = 1;
+    let mut v1_as_v2 = v1_fixture();
+    v1_as_v2[4] = 2;
+
+    for (claimed, data) in [(1, v2_as_v1), (2, v1_as_v2)] {
+        std::fs::write(&path, &data).unwrap();
+        let result = read_secret_key_with(&path, |_| panic!("password requested for a relabelled key file"));
+        match result {
+            Err(Error::InvalidFormat(msg)) => assert!(msg.contains(&format!("for format v{claimed}")), "got: {msg}"),
+            Err(other) => panic!("expected InvalidFormat, got: {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+}
+
+/// Format v2 stores no key ID in the payload: the keys made from the seeds must match the header's key ID.
+#[test]
+fn test_secret_key_v2_header_key_id_mismatch_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.key");
+    write_secret_key(&path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
+    let mut data = std::fs::read(&path).unwrap();
+    data[6] ^= 0x01;
+    std::fs::write(&path, &data).unwrap();
+
+    match read_secret_key(&path, pw("test")) {
+        Err(Error::Crypto(msg)) => {
+            assert!(msg.contains("does not match its key ID"), "got: {msg}");
+            assert!(msg.contains("restore the file from a backup"), "got: {msg}");
+        }
+        Err(other) => panic!("expected the key-ID mismatch error, got: {other}"),
+        Ok(_) => panic!("a key with a changed header key ID was loaded"),
+    }
+}
+
 // -- Secret key: truncated or padded files --
 
 #[test]
 fn test_secret_key_wrong_length_detected_before_password() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.key");
-    let (sk, _) = KeyPair::new().into_parts();
-    write_secret_key(&path, &sk, pw("test"), &TEST_KDF).unwrap();
-    let data = std::fs::read(&path).unwrap();
+    write_secret_key(&path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
+    let v2 = std::fs::read(&path).unwrap();
 
-    let truncated = &data[..512];
-    let padded = [data.as_slice(), b"extra"].concat();
-    for corrupt in [truncated, padded.as_slice()] {
-        std::fs::write(&path, corrupt).unwrap();
-        let result = read_secret_key_with(&path, |_| panic!("password requested for a corrupt key file"));
-        match result {
-            Err(Error::InvalidFormat(msg)) => assert!(msg.contains("truncated or corrupt"), "got: {msg}"),
-            Err(other) => panic!("expected InvalidFormat, got: {other}"),
-            Ok(_) => panic!("expected error, got Ok"),
+    for (version, data) in [(1, v1_fixture()), (2, v2)] {
+        let truncated = &data[..data.len() - 1];
+        let padded = [data.as_slice(), b"extra"].concat();
+        for corrupt in [truncated, padded.as_slice()] {
+            std::fs::write(&path, corrupt).unwrap();
+            let result = read_secret_key_with(&path, |_| panic!("password requested for a corrupt key file"));
+            match result {
+                Err(Error::InvalidFormat(msg)) => {
+                    assert!(msg.contains("truncated or corrupt"), "got: {msg}");
+                    assert!(msg.contains(&format!("for format v{version}")), "got: {msg}");
+                }
+                Err(other) => panic!("expected InvalidFormat, got: {other}"),
+                Ok(_) => panic!("expected error, got Ok"),
+            }
         }
     }
 }
@@ -740,16 +831,32 @@ fn test_header_rejects_version_zero() {
 /// Each file type has its own newest version: v2 is fine for signatures but too new for keys.
 #[test]
 fn test_header_versions_are_per_file_type() {
-    let key_v2 = b"PQSN\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00";
-    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(key_v2.as_slice())));
-    assert!(msg.contains("requires pqsign format v2, this build supports v1"), "got: {msg}");
+    let public_key_v2 = b"PQSN\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00";
+    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(public_key_v2.as_slice())));
+    assert!(
+        msg.contains("this public key file is format v2, which needs a newer pqsign (this build reads up to v1)"),
+        "got: {msg}"
+    );
+
+    let secret_key_v2 = b"PQSN\x02\x02\x00\x00\x00\x00\x00\x00\x00\x00";
+    assert_eq!(FileHeader::read(&mut Cursor::new(secret_key_v2.as_slice())).unwrap().version, 2);
+
+    let secret_key_v3 = b"PQSN\x03\x02\x00\x00\x00\x00\x00\x00\x00\x00";
+    let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(secret_key_v3.as_slice())));
+    assert!(
+        msg.contains("this secret key file is format v3, which needs a newer pqsign (this build reads up to v2)"),
+        "got: {msg}"
+    );
 
     let sig_v2 = b"PQSN\x02\x03\x00\x00\x00\x00\x00\x00\x00\x00";
     assert_eq!(FileHeader::read(&mut Cursor::new(sig_v2.as_slice())).unwrap().version, 2);
 
     let sig_v3 = b"PQSN\x03\x03\x00\x00\x00\x00\x00\x00\x00\x00";
     let msg = invalid_format_message(FileHeader::read(&mut Cursor::new(sig_v3.as_slice())));
-    assert!(msg.contains("requires pqsign format v3, this build supports v2"), "got: {msg}");
+    assert!(
+        msg.contains("this signature file is format v3, which needs a newer pqsign (this build reads up to v2)"),
+        "got: {msg}"
+    );
 }
 
 // -- File names in trusted comments --
@@ -778,8 +885,8 @@ fn test_escape_file_name_keeps_invalid_bytes_distinct() {
 
 // -- Public key text prefix and header version --
 
-/// The prefix and the header must agree. With only format v1 for keys this is also rejected by the header's own
-/// version check; the test keeps it rejected once a newer key format exists.
+/// The prefix and the header must agree. Secret keys moved to format v2 while public keys stay at v1, so a v2
+/// header inside `pqsign:v1:` text is rejected by this check.
 #[test]
 fn test_public_key_text_and_header_versions_must_match() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};

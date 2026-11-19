@@ -11,11 +11,22 @@ pub enum FileType {
 }
 
 impl FileType {
-    /// The newest format version of each file type. Key files are still v1; signatures moved to v2 in pqsign 0.2.
+    /// The newest format version of each file type. Each type's version changes on its own, and only when that
+    /// type's bytes change: public keys are still v1, signatures moved to v2 in pqsign 0.2, and secret keys moved
+    /// to v2, which stores seeds, in pqsign 0.4.
     pub fn latest_version(self) -> u8 {
         match self {
-            FileType::PublicKey | FileType::SecretKey => 1,
+            FileType::PublicKey => 1,
+            FileType::SecretKey => 2,
             FileType::Signature => 2,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            FileType::PublicKey => "public key",
+            FileType::SecretKey => "secret key",
+            FileType::Signature => "signature",
         }
     }
 
@@ -85,7 +96,8 @@ fn check_version(version: u8, file_type: FileType) -> Result<(), Error> {
         return Err(err);
     }
     if version > latest {
-        let msg = format!("file requires pqsign format v{version}, this build supports v{latest}");
+        let name = file_type.name();
+        let msg = format!("this {name} file is format v{version}, which needs a newer pqsign (this build reads up to v{latest})");
         let err = Error::InvalidFormat(msg);
         return Err(err);
     }

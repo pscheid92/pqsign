@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::util::{resolve_key_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix};
-use crate::domain::KeyPair;
+use crate::domain::SecretSeeds;
 use crate::errors::Error;
 use crate::format::{self, Kdf};
 use crate::password::PasswordSource;
@@ -37,15 +37,15 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let password = password.read_new()?;
 
     eprintln!("Generating key pair...");
-    let keypair = KeyPair::new();
-    format::write_key_pair(&secret_key_path, &public_key_path, &keypair, password, overwrite, &kdf)?;
+    let seeds = SecretSeeds::generate();
+    let public_key = format::write_key_pair(&secret_key_path, &public_key_path, &seeds, password, overwrite, &kdf)?;
 
-    let pk_content = format::encode_public_key(&keypair.public_key)?;
+    let pk_content = format::encode_public_key(&public_key)?;
 
     eprintln!("Secret key:  {}", SafePath(&secret_key_path));
     eprintln!("Public key:  {}", SafePath(&public_key_path));
-    eprintln!("Key ID:      {}", keypair.public_key.key_id());
-    eprintln!("Fingerprint: {}", keypair.public_key.fingerprint());
+    eprintln!("Key ID:      {}", public_key.key_id());
+    eprintln!("Fingerprint: {}", public_key.fingerprint());
     eprintln!();
     // The public key is what the command produces, so it goes to stdout; the status lines above go to stderr.
     print!("{pk_content}");

@@ -90,6 +90,8 @@ public_byte_type!(Ed25519Signature, ed25519::SIGNATURE_LENGTH);
 public_byte_type!(MlDsa65PublicKey, ml_dsa_65::PK_LEN);
 secret_byte_type!(MlDsa65SecretKey, ml_dsa_65::SK_LEN);
 public_byte_type!(MlDsa65Signature, ml_dsa_65::SIG_LEN);
+// FIPS 204's ξ, the 32-byte input to ML-DSA.KeyGen_internal. The whole ML-DSA-65 key pair is rebuilt from it.
+secret_byte_type!(MlDsa65Seed, 32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, zeroize::Zeroize)]
 pub struct KeyId(pub(crate) [u8; 8]);

@@ -4,7 +4,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use zeroize::Zeroizing;
 
-use pqsign::domain::KeyPair;
+use pqsign::domain::SecretSeeds;
 use pqsign::format::{self, Kdf};
 
 fn cmd() -> Command {
@@ -22,7 +22,15 @@ const TEST_KDF: Kdf = Kdf::Argon2id {
 fn generate_key(sk: &std::path::Path) {
     let mut pk = sk.as_os_str().to_owned();
     pk.push(".pub");
-    format::write_key_pair(sk, pk.as_ref(), &KeyPair::new(), Zeroizing::new("test-pw".into()), false, &TEST_KDF).unwrap();
+    format::write_key_pair(
+        sk,
+        pk.as_ref(),
+        &SecretSeeds::generate(),
+        Zeroizing::new("test-pw".into()),
+        false,
+        &TEST_KDF,
+    )
+    .unwrap();
 }
 
 fn sign_file(file: &std::path::Path, sk: &std::path::Path, sig: &std::path::Path) {
@@ -72,12 +80,38 @@ fn test_cli_generate() {
     let public_key = fs::read_to_string(dir.path().join("test.key.pub")).unwrap();
     assert_eq!(String::from_utf8_lossy(&assert.get_output().stdout), public_key);
 
+    // New keys are written in secret key format v2, which stores the two 32-byte seeds.
+    assert_eq!(fs::metadata(&sk).unwrap().len(), 151);
+
     // The other tests write their keys with small parameters, so this is where the defaults are checked.
+    cmd().args(["inspect", sk.to_str().unwrap()]).assert().success().stdout(
+        predicates::str::contains("Secret key (format v2, encrypted)")
+            .and(predicates::str::contains("Memory:      256 MiB"))
+            .and(predicates::str::contains("Ops:         3")),
+    );
+}
+
+/// A secret key in format v1, written by pqsign 0.3.1, still signs through the command line.
+#[test]
+fn test_cli_sign_with_v1_secret_key_fixture() {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/secret-keys");
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("doc.txt");
+    let sig = dir.path().join("doc.txt.pqsig");
+    let password = dir.path().join("password");
+    fs::write(&file, b"signed with the format v1 fixture").unwrap();
+    fs::write(&password, "fixture-password\n").unwrap();
+
     cmd()
-        .args(["inspect", sk.to_str().unwrap()])
+        .args(["sign", file.to_str().unwrap(), "-s", fixtures.join("v1.key").to_str().unwrap()])
+        .args(["-x", sig.to_str().unwrap(), "--password-file", password.to_str().unwrap()])
         .assert()
-        .success()
-        .stdout(predicates::str::contains("Memory:      256 MiB").and(predicates::str::contains("Ops:         3")));
+        .success();
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .args(["-p", fixtures.join("v1.key.pub").to_str().unwrap()])
+        .assert()
+        .success();
 }
 
 #[test]
