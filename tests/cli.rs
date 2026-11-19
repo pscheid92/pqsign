@@ -1726,3 +1726,34 @@ fn test_cli_change_password_notes_a_key_that_was_accessible_by_others() {
     change(&new, &old).stderr(predicates::str::contains(note));
     assert_eq!(fs::metadata(&sk).unwrap().permissions().mode() & 0o777, 0o600);
 }
+
+// -- stack size --
+
+/// An unoptimized `sign` needs more stack than the 1 MiB a Windows main thread gets, so pqsign runs on a thread with
+/// its own, larger stack. Lowering the main thread's stack limit with `ulimit -s` checks that, on platforms where a
+/// test can set it.
+#[cfg(unix)]
+#[test]
+fn test_cli_sign_does_not_depend_on_main_thread_stack() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    let sig = dir.path().join("msg.txt.pqsig");
+    fs::write(&file, b"small stack").unwrap();
+    generate_key(&sk);
+
+    // 512 KiB: `sign` on the main thread of a debug build aborts with a stack overflow below about 1 MiB.
+    Command::new("sh")
+        .args(["-c", r#"ulimit -s 512 && exec "$@""#, "sh"])
+        .arg(assert_cmd::cargo::cargo_bin("pqsign"))
+        .args(["sign", file.to_str().unwrap(), "-s", sk.to_str().unwrap()])
+        .args(["-x", sig.to_str().unwrap(), "--password-stdin"])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
+        .assert()
+        .success();
+}

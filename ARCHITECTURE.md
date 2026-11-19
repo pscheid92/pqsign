@@ -32,6 +32,10 @@ Defines the subcommands `generate`, `sign`, `change-password`, `verify`, `inspec
 `version`, converts the parsed arguments into the `Options` of each command, and turns the result into an exit code.
 `completions` and `version` are handled here; the other five call `commands::<name>::run`.
 
+`main` does all of this on a thread with an 8 MiB stack and waits for it. ML-DSA-65 in `fips204` keeps large values on
+the stack, and an unoptimized `sign` does not fit in the 1 MiB a Windows main thread gets. The thread is named `main`,
+and a panic on it is raised again on the real main thread, so output and exit codes are the same as without it.
+
 ### `src/commands/`
 
 - `generate`: checks that neither key file exists (unless `--overwrite`), reads a new password, generates
