@@ -23,7 +23,8 @@ const V2_PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65Seed::LEN;
 
 /// Writes an encrypted secret key in format v2 atomically, readable by the owner only. An existing file is
 /// replaced. `generate` uses [`Kdf::argon2id`]; tests pass small parameters so they do not spend their time in
-/// Argon2id. Nothing writes format v1 any more.
+/// Argon2id. Nothing encodes format v1 any more; [`change_password`] re-encrypts an existing format v1 payload
+/// unchanged.
 pub fn write(path: &Path, seeds: &SecretSeeds, password: Zeroizing<String>, kdf: &Kdf) -> Result<(), Error> {
     let data = encode_v2(seeds, &password, kdf)?;
     file::write(path, &data, Access::Private)
@@ -40,7 +41,46 @@ pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing
     let data = file::read(path)?;
     let parsed = parse(&data)?;
     let password = password_fn(&parsed.kdf)?;
-    open(&parsed, &password)
+    Ok(open(&parsed, &password)?.secret_key)
+}
+
+/// What [`change_password`] rewrote, for the caller's status line.
+pub struct PasswordChanged {
+    /// The secret key format version, from the header, which is kept.
+    pub version: u8,
+    pub key_id: KeyId,
+    pub fingerprint: Fingerprint,
+    /// The Argon2id parameters the file was written with.
+    pub kdf: Kdf,
+}
+
+/// Re-encrypts a secret key file under a new password and `kdf`, keeping its header and payload bytes, so the
+/// key, its format version, key ID and fingerprint stay the same. `current` is called after every check that
+/// needs no password, and `new` only after the current password has opened the file. The new file is read back
+/// with the new password before it atomically replaces the old one.
+pub fn change_password(
+    path: &Path,
+    current: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>,
+    new: impl FnOnce() -> Result<Zeroizing<String>, Error>,
+    kdf: &Kdf,
+) -> Result<PasswordChanged, Error> {
+    kdf.check()?;
+    let data = file::read(path)?;
+    let parsed = parse(&data)?;
+    let opened = open(&parsed, &current(&parsed.kdf)?)?;
+
+    let new_password = new()?;
+    let rewritten = seal(&parsed.header, &opened.plaintext, &new_password, kdf)?;
+    check_rewritten(&rewritten, &data, &new_password, &opened, kdf)?;
+    check_unchanged(path, &data)?;
+
+    file::write(path, &rewritten, Access::Private)?;
+    Ok(PasswordChanged {
+        version: parsed.header.version,
+        key_id: opened.secret_key.key_id(),
+        fingerprint: opened.secret_key.fingerprint(),
+        kdf: *kdf,
+    })
 }
 
 // -- Shared helpers --
@@ -74,15 +114,55 @@ fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     })
 }
 
+/// A decrypted payload and the key it decodes to. The plaintext is kept for re-encryption. No `Drop` and no
+/// `Debug`: `read_with` moves `secret_key` out of a temporary, and the plaintext wipes itself.
+struct Opened {
+    plaintext: Zeroizing<Vec<u8>>,
+    secret_key: SecretKey,
+}
+
 /// Decrypts and decodes, so the key-ID check of the file's format version runs.
-fn open(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<SecretKey, Error> {
+fn open(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<Opened, Error> {
     let plaintext = decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)?;
 
-    match parsed.header.version {
-        1 => decode_v1(&plaintext, &parsed.header),
-        2 => decode_v2(&plaintext, &parsed.header),
-        other => Err(unsupported_version(other)),
+    let secret_key = match parsed.header.version {
+        1 => decode_v1(&plaintext, &parsed.header)?,
+        2 => decode_v2(&plaintext, &parsed.header)?,
+        other => return Err(unsupported_version(other)),
+    };
+    Ok(Opened { plaintext, secret_key })
+}
+
+/// Reads the re-encrypted bytes back before they replace the file: the same length and header as the original,
+/// the requested KDF parameters, and the same plaintext under the new password. The plaintext is not decoded
+/// again; with the same header it would decode to the same key, and a format v1 decode leaves a copy of the key
+/// inside fips204 that can't be wiped. Any failure is a bug in `seal` or below, never a user error, so every
+/// failure becomes the same error, which says the file was left unchanged.
+fn check_rewritten(rewritten: &[u8], original: &[u8], password: &Zeroizing<String>, opened: &Opened, kdf: &Kdf) -> Result<(), Error> {
+    let reads_back = rewritten.len() == original.len()
+        && rewritten[..FileHeader::LEN] == original[..FileHeader::LEN]
+        && parse(rewritten).is_ok_and(|parsed| {
+            parsed.kdf == *kdf
+                && decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)
+                    .is_ok_and(|plaintext| *plaintext == *opened.plaintext)
+        });
+
+    if !reads_back {
+        let msg = "the re-encrypted secret key did not read back with the new password; the secret key file was left \
+                   unchanged; please report this as a pqsign bug";
+        return Err(Error::Crypto(msg.into()));
     }
+    Ok(())
+}
+
+/// Stops the write when the file changed since it was read, for example by `generate --overwrite` while
+/// `change-password` waited at a prompt. Writing the old key back would leave the `.key` and the `.pub` from
+/// different keys. Not a lock: a change during the final write is still lost.
+fn check_unchanged(path: &Path, original: &[u8]) -> Result<(), Error> {
+    if file::read(path)? != original {
+        return Err(Error::KeyFileChanged(path.to_path_buf()));
+    }
+    Ok(())
 }
 
 fn read_and_validate_header(r: &mut impl std::io::Read) -> Result<FileHeader, Error> {
@@ -177,7 +257,7 @@ fn seal(header: &FileHeader, plaintext: &[u8], password: &Zeroizing<String>, kdf
 
 // -- Read helpers --
 
-/// Frozen: decodes secret key format v1, which pqsign no longer writes. Never change it; the fixtures in
+/// Frozen: decodes secret key format v1, which pqsign no longer encodes. Never change it; the fixtures in
 /// tests/fixtures/secret-keys guard it.
 fn decode_v1(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> {
     let (ed25519, mldsa65, payload_key_id) = deserialize_payload(plaintext)?;
@@ -217,4 +297,69 @@ fn decode_v2(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> 
 
     let (secret_key, _) = key_pair.into_parts();
     Ok(secret_key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const KDF: Kdf = Kdf::Argon2id {
+        mem_limit: 64 * 1024,
+        ops_limit: 1,
+    };
+    const OTHER_KDF: Kdf = Kdf::Argon2id {
+        mem_limit: 128 * 1024,
+        ops_limit: 1,
+    };
+
+    fn pw(s: &str) -> Zeroizing<String> {
+        Zeroizing::new(s.into())
+    }
+
+    /// The original file, what it opens to, and a correct rewrite of it under "new".
+    fn rewrite() -> (Vec<u8>, Opened, Vec<u8>) {
+        let original = encode_v2(&SecretSeeds::generate(), &pw("old"), &KDF).unwrap();
+        let parsed = parse(&original).unwrap();
+        let opened = open(&parsed, &pw("old")).unwrap();
+        let rewritten = seal(&parsed.header, &opened.plaintext, &pw("new"), &KDF).unwrap();
+        (original, opened, rewritten)
+    }
+
+    fn assert_bug_report(result: Result<(), Error>) {
+        match result {
+            Err(Error::Crypto(msg)) => {
+                assert!(msg.contains("did not read back"), "got: {msg}");
+                assert!(msg.contains("left unchanged"), "got: {msg}");
+            }
+            Err(other) => panic!("expected the bug-report error, got: {other}"),
+            Ok(()) => panic!("a broken rewrite passed the read-back"),
+        }
+    }
+
+    #[test]
+    fn test_check_rewritten_accepts_a_correct_rewrite() {
+        let (original, opened, rewritten) = rewrite();
+        check_rewritten(&rewritten, &original, &pw("new"), &opened, &KDF).unwrap();
+    }
+
+    /// Every way a rewrite can be wrong gives the one bug-report error, never `WrongPassword` or `InvalidFormat`.
+    #[test]
+    fn test_check_rewritten_reports_every_failure_as_a_bug() {
+        let (original, opened, rewritten) = rewrite();
+
+        let mut flipped = rewritten.clone();
+        *flipped.last_mut().unwrap() ^= 0x01;
+        assert_bug_report(check_rewritten(&flipped, &original, &pw("new"), &opened, &KDF));
+
+        assert_bug_report(check_rewritten(&rewritten, &original, &pw("wrong"), &opened, &KDF));
+
+        let mut header = rewritten.clone();
+        header[6] ^= 0x01;
+        assert_bug_report(check_rewritten(&header, &original, &pw("new"), &opened, &KDF));
+
+        let longer = [rewritten.as_slice(), b"x"].concat();
+        assert_bug_report(check_rewritten(&longer, &original, &pw("new"), &opened, &KDF));
+
+        assert_bug_report(check_rewritten(&rewritten, &original, &pw("new"), &opened, &OTHER_KDF));
+    }
 }

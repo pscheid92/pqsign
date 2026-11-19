@@ -38,6 +38,9 @@ pub enum Error {
     #[error("cannot prompt for a password: {source}; use --password-stdin or --password-file when no terminal is available")]
     PasswordPrompt { source: std::io::Error },
 
+    #[error("{} changed while its password was being changed; nothing was written; run change-password again", SafePath(.0))]
+    KeyFileChanged(std::path::PathBuf),
+
     #[error("key ID mismatch: signature has {sig_id}, public key has {pk_id}")]
     KeyIdMismatch { sig_id: KeyId, pk_id: KeyId },
 
