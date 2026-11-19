@@ -1,4 +1,4 @@
-//! Password input for key generation and signing.
+//! Password input for key generation, signing and changing a key's password.
 //!
 //! A password comes from exactly one [`PasswordSource`]. Interactive prompting goes through
 //! the controlling terminal, and the non-interactive sources read a single line. Nothing is
@@ -17,7 +17,7 @@ use crate::errors::{Error, IoContext};
 /// Applies to new passwords from every source and to passwords read non-interactively.
 pub const MAX_PASSWORD_LEN: usize = 1024;
 
-/// Where the secret key password comes from.
+/// Where a secret key password comes from: the password of an existing key, or a new one.
 pub enum PasswordSource {
     /// Prompt on the controlling terminal. Fails when no terminal is available.
     Prompt,
@@ -32,8 +32,18 @@ pub enum PasswordSource {
 impl PasswordSource {
     /// Obtains the password for an existing key. Nothing is confirmed.
     pub fn read_existing(self) -> Result<Zeroizing<String>, Error> {
+        self.read_existing_as("Password: ")
+    }
+
+    /// Obtains the password for a new key. Interactive use asks twice; every other source reads once.
+    pub fn read_new(self) -> Result<Zeroizing<String>, Error> {
+        self.read_new_as("Password: ", "Confirm password: ")
+    }
+
+    /// [`Self::read_existing`], prompting with `prompt` on the terminal.
+    pub fn read_existing_as(self, prompt: &str) -> Result<Zeroizing<String>, Error> {
         let password = match self {
-            PasswordSource::Prompt => prompt_password("Password: ")?,
+            PasswordSource::Prompt => prompt_password(prompt)?,
             PasswordSource::Stdin => read_first_line(raw_stdin()?)?,
             PasswordSource::File(path) => read_first_line_from_file(&path)?,
             PasswordSource::Given(password) => password,
@@ -41,20 +51,20 @@ impl PasswordSource {
         require_non_empty(password)
     }
 
-    /// Obtains the password for a new key. Interactive use asks twice; every other source reads once.
-    pub fn read_new(self) -> Result<Zeroizing<String>, Error> {
+    /// [`Self::read_new`], prompting with `prompt` and then `confirm` on the terminal.
+    pub fn read_new_as(self, prompt: &str, confirm: &str) -> Result<Zeroizing<String>, Error> {
         let password = match self {
-            PasswordSource::Prompt => prompt_new_password()?,
-            other => other.read_existing()?,
+            PasswordSource::Prompt => prompt_new_password(prompt, confirm)?,
+            other => other.read_existing_as(prompt)?,
         };
         require_max_len(password.len())?;
         Ok(password)
     }
 }
 
-fn prompt_new_password() -> Result<Zeroizing<String>, Error> {
-    let password = prompt_password("Password: ")?;
-    let confirm = prompt_password("Confirm password: ")?;
+fn prompt_new_password(prompt: &str, confirm: &str) -> Result<Zeroizing<String>, Error> {
+    let password = prompt_password(prompt)?;
+    let confirm = prompt_password(confirm)?;
     validate_new_password(&password, &confirm)?;
     Ok(password)
 }
