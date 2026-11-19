@@ -46,16 +46,23 @@ pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 /// of refusing like ssh does, because secret keys are encrypted, and keys written by pqsign 0.1 with
 /// `generate --overwrite` could be left readable by everyone.
 pub fn warn_if_accessible_by_others(path: &Path, what: &str) {
-    #[cfg(unix)]
-    if let Some(mode) = unix_mode(path)
-        && mode & 0o077 != 0
-    {
+    if let Some(mode) = mode_if_accessible_by_others(path) {
         let path = SafePath(path);
-        let mode = mode & 0o777;
         eprintln!("warning: {what} {path} is accessible by other users (mode {mode:04o}); restrict it with: chmod 600 {path}");
     }
+}
+
+/// The permission bits of `path` when users other than the owner can access it. Always `None` off Unix.
+pub fn mode_if_accessible_by_others(path: &Path) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        unix_mode(path).filter(|mode| mode & 0o077 != 0).map(|mode| mode & 0o777)
+    }
     #[cfg(not(unix))]
-    let _ = (path, what);
+    {
+        let _ = path;
+        None
+    }
 }
 
 /// Warns when users other than the owner can write to the directory that holds `path`, and so replace the file

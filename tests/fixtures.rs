@@ -136,3 +136,58 @@ fn test_v2_secret_key_fixture_signs() {
     assert_eq!(fs::metadata(&path).unwrap().len(), 151);
     check_secret_key_fixture("v2.key", "005D87F817789998", "BLAKE2b-256:AF2H+Bd4mZjatXH099oBMQFnU4+6QwLGi5XVul4ekm0");
 }
+
+// -- Changing the password of a secret key fixture --
+
+/// Small Argon2id parameters for the rewritten copies. Reading `v1-random-id.key` still costs one derivation at
+/// its own parameters, 256 MiB.
+const TEST_KDF: format::Kdf = format::Kdf::Argon2id {
+    mem_limit: 64 * 1024,
+    ops_limit: 1,
+};
+
+/// Changes the password of a copy of a fixture. The copy must keep its format version, length, header, key ID and
+/// fingerprint, open with the new password only, and sign a file that verifies against the committed `.pub`.
+fn check_password_change(name: &str, version: u8, len: usize) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(name);
+    fs::copy(repo(&format!("tests/fixtures/secret-keys/{name}")), &path).unwrap();
+    let before = fs::read(&path).unwrap();
+    let pk = format::read_public_key(&repo(&format!("tests/fixtures/secret-keys/{name}.pub"))).unwrap();
+
+    let new_password = || Ok(Zeroizing::new("new-password".to_string()));
+    let changed = format::change_secret_key_password(&path, |_| Ok(fixture_password()), new_password, &TEST_KDF).unwrap();
+
+    let after = fs::read(&path).unwrap();
+    assert_eq!(changed.version, version);
+    assert_eq!(after.len(), len);
+    assert_eq!(after[..14], before[..14]);
+    assert_eq!(after[4], version);
+    assert_eq!(changed.key_id, pk.key_id());
+    assert_eq!(changed.fingerprint, pk.fingerprint());
+
+    assert!(matches!(format::read_secret_key(&path, fixture_password()), Err(Error::WrongPassword)));
+    let sk = format::read_secret_key(&path, Zeroizing::new("new-password".to_string())).unwrap();
+    assert_eq!(sk.key_id(), pk.key_id());
+    assert_eq!(sk.fingerprint(), pk.fingerprint());
+
+    let file = dir.path().join("message.txt");
+    fs::write(&file, b"signed after a password change").unwrap();
+    sk.sign(&file, "fixture").unwrap().verify(&pk, &file).unwrap();
+}
+
+#[test]
+fn test_v1_secret_key_fixture_password_change() {
+    check_password_change("v1.key", 1, 4159);
+}
+
+/// Takes about 0.4 s: the fixture's own parameters are pqsign 0.1's defaults.
+#[test]
+fn test_v1_random_id_secret_key_fixture_password_change() {
+    check_password_change("v1-random-id.key", 1, 4159);
+}
+
+#[test]
+fn test_v2_secret_key_fixture_password_change() {
+    check_password_change("v2.key", 2, 151);
+}

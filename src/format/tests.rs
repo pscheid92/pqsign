@@ -624,6 +624,193 @@ fn test_secret_key_wrong_length_detected_before_password() {
     }
 }
 
+// -- Secret key: change password --
+
+const NEW_KDF: Kdf = Kdf::Argon2id {
+    mem_limit: 128 * 1024,
+    ops_limit: 2,
+};
+
+fn kdf_block(kdf: &Kdf) -> Vec<u8> {
+    let mut buf = Vec::new();
+    kdf::write_to(kdf, &mut buf).unwrap();
+    buf
+}
+
+fn v2_key_file(dir: &std::path::Path, password: &str) -> std::path::PathBuf {
+    let path = dir.join("test.key");
+    write_secret_key(&path, &SecretSeeds::generate(), pw(password), &TEST_KDF).unwrap();
+    path
+}
+
+#[test]
+fn test_change_password_keeps_the_key_and_header() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+    let before = std::fs::read(&path).unwrap();
+    let key = read_secret_key(&path, pw("old")).unwrap();
+
+    let changed = change_secret_key_password(&path, |_| Ok(pw("old")), || Ok(pw("new")), &NEW_KDF).unwrap();
+
+    let after = std::fs::read(&path).unwrap();
+    assert_eq!(after.len(), 151);
+    assert_eq!(after[..FileHeader::LEN], before[..FileHeader::LEN]);
+    assert_eq!(after[14..31], kdf_block(&NEW_KDF));
+    assert_ne!(after[31..47], before[31..47], "salt");
+    assert_ne!(after[47..71], before[47..71], "nonce");
+
+    let reloaded = read_secret_key(&path, pw("new")).unwrap();
+    assert_eq!(reloaded.key_id(), key.key_id());
+    assert_eq!(reloaded.fingerprint(), key.fingerprint());
+
+    assert_eq!(changed.version, 2);
+    assert_eq!(changed.key_id, key.key_id());
+    assert_eq!(changed.fingerprint, key.fingerprint());
+    assert_eq!(changed.kdf, NEW_KDF);
+}
+
+#[test]
+fn test_change_password_old_password_fails_afterwards() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+
+    change_secret_key_password(&path, |_| Ok(pw("old")), || Ok(pw("new")), &TEST_KDF).unwrap();
+
+    assert!(matches!(read_secret_key(&path, pw("old")), Err(Error::WrongPassword)));
+}
+
+/// A fresh salt and nonce, also when the password stays the same.
+#[test]
+fn test_change_password_uses_a_fresh_salt_and_nonce() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "same");
+    let before = std::fs::read(&path).unwrap();
+
+    change_secret_key_password(&path, |_| Ok(pw("same")), || Ok(pw("same")), &TEST_KDF).unwrap();
+
+    let after = std::fs::read(&path).unwrap();
+    assert_ne!(after[31..47], before[31..47], "salt");
+    assert_ne!(after[47..71], before[47..71], "nonce");
+    read_secret_key(&path, pw("same")).unwrap();
+}
+
+/// A file that fails the checks needing no password gets the same error as from `read_with`, and no password is
+/// asked for.
+#[test]
+fn test_change_password_checks_the_file_before_any_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "test");
+    let v2 = std::fs::read(&path).unwrap();
+    let mut relabelled = v2.clone();
+    relabelled[4] = 1;
+    let (_, pk) = KeyPair::new().into_parts();
+    let pk_path = dir.path().join("test.pub");
+    write_public_key(&pk_path, &pk).unwrap();
+    let pk_bytes = std::fs::read(&pk_path).unwrap();
+
+    let corrupt = [relabelled, v2[..v2.len() - 1].to_vec(), [v2.as_slice(), b"extra"].concat(), pk_bytes];
+    for data in corrupt {
+        std::fs::write(&path, &data).unwrap();
+        let expected = read_secret_key_with(&path, |_| panic!("password requested")).err().unwrap().to_string();
+
+        let result = change_secret_key_password(
+            &path,
+            |_| panic!("current password requested"),
+            || panic!("new password requested"),
+            &TEST_KDF,
+        );
+
+        assert_eq!(result.err().unwrap().to_string(), expected);
+        assert_eq!(std::fs::read(&path).unwrap(), data);
+    }
+}
+
+#[test]
+fn test_change_password_wrong_current_password_asks_for_no_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+    let before = std::fs::read(&path).unwrap();
+
+    let result = change_secret_key_password(&path, |_| Ok(pw("wrong")), || panic!("new password requested"), &TEST_KDF);
+    assert!(matches!(result, Err(Error::WrongPassword)));
+
+    let result = change_secret_key_password(&path, |_| Err(Error::PasswordEmpty), || panic!("new password requested"), &TEST_KDF);
+    assert!(matches!(result, Err(Error::PasswordEmpty)));
+
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn test_change_password_failed_new_password_leaves_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+    let before = std::fs::read(&path).unwrap();
+
+    let result = change_secret_key_password(&path, |_| Ok(pw("old")), || Err(Error::PasswordMismatch), &TEST_KDF);
+
+    assert!(matches!(result, Err(Error::PasswordMismatch)));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn test_change_password_rejects_invalid_parameters_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+    let before = std::fs::read(&path).unwrap();
+    let invalid = Kdf::Argon2id {
+        mem_limit: 64 * 1024,
+        ops_limit: 17,
+    };
+
+    let result = change_secret_key_password(
+        &path,
+        |_| panic!("current password requested"),
+        || panic!("new password requested"),
+        &invalid,
+    );
+
+    match result {
+        Err(Error::InvalidFormat(msg)) => assert!(msg.contains("17 Argon2id iterations"), "got: {msg}"),
+        Err(other) => panic!("expected InvalidFormat, got: {other}"),
+        Ok(_) => panic!("invalid parameters were accepted"),
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// Stands in for `generate --overwrite` running while `change-password` waits at the new-password prompt: the
+/// other file must stay, rather than the old key being written back over it.
+#[test]
+fn test_change_password_stops_when_the_file_changed_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = v2_key_file(dir.path(), "old");
+    let other = dir.path().join("other.key");
+    write_secret_key(&other, &SecretSeeds::generate(), pw("other"), &TEST_KDF).unwrap();
+    let other_bytes = std::fs::read(&other).unwrap();
+
+    let result = change_secret_key_password(
+        &path,
+        |_| Ok(pw("old")),
+        || {
+            std::fs::write(&path, &other_bytes).unwrap();
+            Ok(pw("new"))
+        },
+        &TEST_KDF,
+    );
+
+    match result {
+        Err(err @ Error::KeyFileChanged(_)) => assert!(err.to_string().contains("nothing was written"), "got: {err}"),
+        Err(other) => panic!("expected KeyFileChanged, got: {other}"),
+        Ok(_) => panic!("the old key was written over a changed file"),
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), other_bytes);
+}
+
+#[test]
+fn test_kdf_display() {
+    assert_eq!(Kdf::argon2id().to_string(), "Argon2id, 256 MiB, 3 passes");
+    assert_eq!(TEST_KDF.to_string(), "Argon2id, 64 KiB, 1 pass");
+}
+
 // -- Bounded reads --
 
 #[test]
