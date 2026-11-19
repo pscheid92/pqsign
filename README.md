@@ -53,6 +53,8 @@ pqsign generate -s mykey.key --force     # overwrite existing
 
 `generate` prints the key's fingerprint, and `pqsign inspect mykey.key.pub` shows it again. Share the fingerprint through a different channel than the key itself, so others can check they received the right key. The 16-character key ID only locates a key and is not enough for that.
 
+Since pqsign 0.4, the secret key file stores only the two 32-byte seeds the key pair is generated from, so it is 151 bytes instead of 4,159. pqsign 0.3 and older can't read it and report a version error; secret keys written by older releases keep working. A file this small is easy to back up as text, for example with `base64 mykey.key` into a password manager or a QR code. A restore mistake can show up as a format error, as a corrupt file, as a key ID mismatch, or as `wrong password`, so check a restored key by signing a test file and verifying the signature against the key's `.pub` file; `pqsign inspect` only confirms the file type and the format version.
+
 The public key is written alongside the secret key with a `.pub` extension as a single-line text string suitable for sharing:
 
 ```
@@ -120,7 +122,7 @@ pqsign inspect document.pdf      # auto-finds document.pdf.pqsig
 
 This is signature format v2, written since pqsign 0.2. Signatures from pqsign 0.1 (format v1) still verify, and `pqsign sign --format v1` writes one for verifiers older than 0.2. A v1 signature does not sign the key ID, so only the fingerprint `verify` shows identifies its signer.
 
-Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. Secret key material, passwords and the Argon2id working memory are wiped from memory after use; see [memory safety](docs/cryptography.md#memory-safety) for what that does and does not cover.
+Secret keys are encrypted at rest with **Argon2id** (256 MiB, 3 iterations) + **XChaCha20-Poly1305**. Since pqsign 0.4, the ML-DSA-65 secret key is stored as its 32-byte seed, as FIPS 204 and the IETF's hybrid standards do. Secret key material, passwords and the Argon2id working memory are wiped from memory after use; see [memory safety](docs/cryptography.md#memory-safety) for what that does and does not cover.
 
 **Password guidance**: The Argon2id KDF makes brute-force expensive (~2.6 attempts/sec per core), but a weak password is still crackable. Use a passphrase of 4+ random words or a 20+ character random password from a password manager. See [brute-force resistance](docs/brute-force-resistance.md) for details.
 

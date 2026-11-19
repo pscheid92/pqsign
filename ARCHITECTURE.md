@@ -34,8 +34,9 @@ parsed arguments into the `Options` of each command, and turns the result into a
 
 ### `src/commands/`
 
-- `generate`: checks that neither key file exists (unless `--overwrite`), reads a new password, generates a
-  `KeyPair` and writes it with `format::write_key_pair`. The public key text goes to stdout.
+- `generate`: checks that neither key file exists (unless `--overwrite`), reads a new password, generates
+  `SecretSeeds` and writes them with `format::write_key_pair`, which returns the public key it prints. The public
+  key text goes to stdout.
 - `sign`: validates the input file, the signature path and the trusted comment, then asks for the password, signs
   and writes `<file>.pqsig`. It refuses a signature path that is the file being signed or one of the key files.
 - `verify`: reads the public key (from a file or `-P`) and the signature, then calls `Signature::verify`. `-q` only
@@ -49,6 +50,8 @@ parsed arguments into the `Options` of each command, and turns the result into a
 
 - `KeyPair`, `SecretKey`, `PublicKey` wrap the `ed25519-dalek` and `fips204` ML-DSA-65 keys. A new key's ID is the
   first 8 bytes of its fingerprint.
+- `SecretSeeds`: the two 32-byte seeds a new key is generated from, the RFC 8032 Ed25519 private key and the
+  ML-DSA-65 seed ξ. `key_pair()` rebuilds the keys from them. It's the only input for writing secret key format v2.
 - `Fingerprint`: BLAKE2b-256 over a domain tag and both public keys, displayed as `BLAKE2b-256:<base64>`.
 - `Signature`, `SignatureFormat` (`V1`, `V2`): `SecretKey::sign` writes v2; v1 only through `sign_as`.
 - Fixed-size byte types for keys and signatures. The secret ones are wiped on drop, print as `[REDACTED]`, and
@@ -58,7 +61,8 @@ parsed arguments into the `Options` of each command, and turns the result into a
 
 - `FileHeader`, `FileType`: the `PQSN` header every binary file starts with.
 - Public keys: one text line, `pqsign:v1:` plus base64. Secret keys: Argon2id + XChaCha20-Poly1305, parameters in
-  `Kdf`. Signatures: v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
+  `Kdf`; written in secret key format v2, which stores the seeds, and read in format v1 too, which is never
+  written. Signatures: signature format v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
 - `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature.
 - `file` (internal): every read and write of a pqsign file goes through here.
 
@@ -76,7 +80,8 @@ parsed arguments into the `Options` of each command, and turns the result into a
   operations) and `cli` (the command `run` functions end to end). Results are in [benchmarks.md](docs/benchmarks.md).
 - `scripts/release-build.sh`: builds one release target reproducibly; the release workflow calls it, and
   [install.md](docs/install.md#rebuild-a-release-binary) explains how to rebuild a release with it.
-- `tests/`: CLI and integration tests, fixtures for both signature formats, and Wycheproof's ML-DSA-65 vectors.
+- `tests/`: CLI and integration tests, fixtures for both signature formats and both secret key formats, and
+  Wycheproof's ML-DSA-65 vectors.
 
 ## Invariants
 
@@ -91,7 +96,8 @@ These hold across module boundaries. A change that breaks one needs a deliberate
 - **No unsafe code.** `#![forbid(unsafe_code)]` in both `lib.rs` and `main.rs`.
 - **Secrets are wiped.** Secret key bytes, passwords, the derived key and the Argon2id working memory are held in
   types that zeroize on drop. The release profile keeps `panic = "unwind"` so that `Drop` still runs on a panic.
-  One copy is out of reach: `fips204` takes the ML-DSA-65 secret key by value when a key is loaded. See
+  One copy is out of reach: `fips204` takes the ML-DSA-65 secret key by value when a secret key format v1 key is
+  loaded; a format v2 key hands it only a reference to the seed. See
   [memory safety](docs/cryptography.md#memory-safety).
 - **Nothing untrusted reaches the terminal raw.** Paths and error messages go through `SafePath` or `SafeText`.
   Trusted comments are rejected on write and on read if they contain a character `terminal::is_unsafe` flags, so
@@ -107,8 +113,15 @@ These hold across module boundaries. A change that breaks one needs a deliberate
   directories pqsign creates are at most `0700`.
 - **KDF limits.** The command line always uses `Kdf::argon2id()` (256 MiB, 3 passes). Key files asking for more than
   1024 MiB or 16 passes are rejected, and pqsign never writes a key it would refuse to read.
-- **Strict parsing, with one exception.** v2 signatures and secret keys reject trailing bytes; public keys, in text
-  or binary form, ignore anything after the ML-DSA-65 key.
+- **Strict parsing, with one exception.** Signature format v2 files and secret key files in both formats reject
+  trailing bytes; public keys, in text or binary form, ignore anything after the ML-DSA-65 key.
+- **Every secret key format stays readable.** pqsign writes only secret key format v2 and still reads format v1,
+  which it no longer writes. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the first v2 release keep both
+  readable.
+- **Seed derivation is frozen.** Secret key format v2 stores only the seeds and rebuilds the keys on every load
+  (FIPS 204 `KeyGen_internal`, RFC 8032), so that derivation must never change. RFC 8032 and Wycheproof
+  known-answer tests and the format v2 fixture pin it; a different derivation needs a new secret key format
+  version.
 
 ## Side effects
 

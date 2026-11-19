@@ -26,7 +26,7 @@ The post-quantum component. Chosen for:
 - NIST standardized (FIPS 204, finalized 2024) — the successor to the CRYSTALS-Dilithium candidate
 - Security level 3 (roughly equivalent to AES-192) — a pragmatic middle ground between ML-DSA-44 (level 2) and ML-DSA-87 (level 5)
 - Lattice-based, well-studied problem (Module-LWE/Module-SIS)
-- Larger signatures (3309 bytes) and keys (1952-byte public key, 4032-byte secret key), but acceptable for file signing where signatures are stored on disk
+- Larger signatures (3309 bytes) and keys (1952-byte public key, 4032-byte secret key, stored as its 32-byte seed since pqsign 0.4), but acceptable for file signing where signatures are stored on disk
 
 We chose level 3 over level 5 because the size/performance tradeoff is significant (ML-DSA-87 signatures are 4627 bytes) and level 3 already provides a substantial security margin.
 
@@ -133,7 +133,24 @@ XChaCha20-Poly1305 was chosen over AES-GCM for its nonce safety (24 bytes vs 12 
 
 ### What Gets Encrypted
 
-The encrypted payload contains:
+Since pqsign 0.4, secret keys are written in secret key format v2. Its encrypted payload holds the two 32-byte values the key pair is generated from:
+
+```
+ed25519_private_key  (32 bytes)   the RFC 8032 private key, itself a seed
+mldsa65_seed         (32 bytes)   ξ, the input to FIPS 204 ML-DSA.KeyGen_internal
+```
+
+That is 64 bytes, or 80 bytes encrypted with the 16-byte Poly1305 tag. On every load, pqsign rebuilds both keys from the seeds with the standard key generation of each algorithm. The Ed25519 private key comes first, as in every other pqsign structure.
+
+The payload holds no key ID. After decryption, the start of the rebuilt keys' fingerprint must equal the key ID in the plaintext header, which for secret key format v2 is always the fingerprint prefix. This catches a damaged or changed header, and also a pqsign build whose dependencies would turn the same seed into a different key. That derivation is part of the format and must never change. Known-answer tests pin it: RFC 8032's Ed25519 vectors and Wycheproof's seeded ML-DSA-65 vectors.
+
+pqsign checks the payload length for the file's format version before asking for the password. A truncated, padded or relabelled key file is therefore reported as corrupt rather than as a wrong password.
+
+A secret key file of 151 bytes is small enough to back up as text, for example with `base64`, in a QR code or a single password-manager field. A restore mistake can show up as a format error, as a corrupt file, as the key-ID mismatch error, or as `wrong password`, because the AEAD can't tell a damaged file from a wrong password. The reliable check is to sign a test file and verify the signature against the key's `.pub` file; `pqsign inspect` only confirms the file type and the format version.
+
+#### Secret key format v1 (pqsign 0.1 to 0.3)
+
+pqsign 0.1 to 0.3 wrote secret key format v1, which pqsign still reads and no longer writes. An expanded key doesn't contain the seed it was made from, so a format v1 key can't be converted; it stays in that format until its owner generates a new key. Its encrypted payload contains:
 
 ```
 ed25519_secret_key  (32 bytes)
@@ -141,21 +158,19 @@ mldsa65_secret_key  (4032 bytes)
 key_id              (8 bytes)
 ```
 
-That is 4072 bytes, or 4088 bytes encrypted with the 16-byte Poly1305 tag. pqsign checks this length before asking for the password, so a truncated key file is reported as corrupt rather than as a wrong password.
-
-The key ID is duplicated inside the encrypted payload and in the plaintext header. On decryption, these are cross-checked to detect file corruption.
+That is 4072 bytes, or 4088 bytes encrypted with the 16-byte Poly1305 tag. The key ID is duplicated inside the encrypted payload and in the plaintext header. On decryption, these are cross-checked to detect file corruption.
 
 ## Memory Safety
 
 Secret material is wiped from memory as soon as it is no longer needed:
 
-- `SecretKey` implements `ZeroizeOnDrop`, and so do the Ed25519 and ML-DSA-65 key types inside it.
+- `SecretKey` implements `ZeroizeOnDrop`, and so do the Ed25519 and ML-DSA-65 key types inside it, and `SecretSeeds` and `MlDsa65Seed`, which hold the seeds a key is generated from.
 - The byte wrappers for secret keys used while reading and writing key files wipe themselves on drop, print as `[REDACTED]`, and cannot be cloned or compared.
 - Key generation seeds, passwords, the serialized and the decrypted key payload are held in zeroizing buffers.
 - The key derived by Argon2id and the cipher's copy of it are wiped on drop.
 - Argon2id's initial hash and its 256 MiB of working memory are wiped after every key derivation.
 
-This shortens how long secrets linger; it does not guarantee that no copy remains. Rust moves values on the stack without wiping the old location, and the cryptographic libraries make internal copies; `fips204`, for example, takes the secret key bytes by value. Memory may also reach swap or a core dump while pqsign runs; pqsign does not lock memory or disable core dumps.
+This shortens how long secrets linger; it does not guarantee that no copy remains. Rust moves values on the stack without wiping the old location, and the cryptographic libraries make internal copies; `fips204`, for example, takes the secret key bytes by value when a secret key format v1 key is loaded. A secret key format v2 key hands it only a reference to the seed. Memory may also reach swap or a core dump while pqsign runs; pqsign does not lock memory or disable core dumps.
 
 - Secret key files are written with Unix permissions `0600`, whatever the umask and also when `--overwrite` replaces an existing file, and directories `generate` creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
 - Key files and signatures are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key or leaves a truncated signature. `generate` places the public key first and the secret key last.
@@ -169,12 +184,12 @@ All binary files share a common header:
 ```
 Offset  Size  Field
 0       4     Magic: "PQSN"
-4       1     Format version: 1 for key files, 2 for signatures (1 for signatures before pqsign 0.2)
+4       1     Format version: 1 for public keys, 2 for secret keys (1 before pqsign 0.4), 2 for signatures (1 before pqsign 0.2)
 5       1     File type: 0x01=PublicKey, 0x02=SecretKey, 0x03=Signature
 6       8     Key ID
 ```
 
-Each file type has its own version, so a new signature format does not relabel key files. Readers reject version 0 and versions newer than they support for that file type, with a message naming the version required.
+Each file type has its own version, so a new signature or secret key format does not relabel the other files. Readers reject version 0 and versions newer than they support for that file type, with a message naming the file type and the version required.
 
 A v2 signature file continues with:
 
@@ -188,9 +203,9 @@ Offset  Size  Field
 3424    n     Trusted comment (UTF-8)
 ```
 
-A v1 signature file has no suite and fingerprint: the Ed25519 signature follows the header directly. Nothing may follow the comment in a v2 file.
+A signature format v1 file has no suite and fingerprint: the Ed25519 signature follows the header directly. Nothing may follow the comment in a signature format v2 file.
 
-A secret key file continues with:
+A secret key file in format v2 continues with:
 
 ```
 Offset  Size  Field
@@ -199,10 +214,12 @@ Offset  Size  Field
 23      8     Argon2id iterations (u64, little-endian)
 31      16    Argon2id salt
 47      24    XChaCha20-Poly1305 nonce
-71      4088  Encrypted payload and Poly1305 tag
+71      80    Encrypted payload and Poly1305 tag
 ```
 
-The KDF byte follows libsodium's numbering, in which 0x01 is Argon2i and 0x02 is Argon2id. pqsign only uses Argon2id and rejects every other value, 0x01 included. A secret key file is 4159 bytes.
+A secret key file in format v2 is 151 bytes. Format v1 has the same first 71 bytes, with version 1 in the header, followed by 4088 bytes of encrypted payload and tag, for 4159 bytes. Secret key files in both formats reject trailing bytes.
+
+The KDF byte follows libsodium's numbering, in which 0x01 is Argon2i and 0x02 is Argon2id. pqsign only uses Argon2id and rejects every other value, 0x01 included.
 
 Public keys use a text format (`pqsign:v1:<base64>`) for easy sharing in text-based channels. The base64 payload contains the same binary header followed by the raw key bytes. The version in the prefix must match the format version byte in that header, which is authoritative; pqsign rejects public keys where the two differ.
 
@@ -216,15 +233,15 @@ pqsign's format predates the IETF's standards for hybrid post-quantum signatures
 
 ### Construction compared
 
-| | pqsign v2 | RFC 10073, ML-DSA-65 + Ed25519 | RFC 9980, ML-DSA-65+Ed25519 |
+| | pqsign (signature format v2, secret key format v2) | RFC 10073, ML-DSA-65 + Ed25519 | RFC 9980, ML-DSA-65+Ed25519 |
 |---|---|---|---|
 | How the two signatures relate | Nested: ML-DSA-65 also signs the Ed25519 signature | Parallel: both sign the same message representative `M'` | Parallel: both sign the same OpenPGP signature digest |
 | What is hashed | The file, with BLAKE2b-512; the hash goes into the record | The message, with SHA-512, inside `M'` | The OpenPGP signature data, with a hash of at least 256 bits |
 | Ed25519 signs | `"pqsign-v2-ed25519" \|\| record` | `M'`, which starts with the prefix `"CompositeAlgorithmSignatures2025"` | The digest; the EdDSA context is empty |
 | ML-DSA-65 signs | `record \|\| ed25519_sig`, context `"pqsign-v2-mldsa65"` | `M'`, context `"COMPSIG-MLDSA65-Ed25519-SHA512"` | The digest; the context is empty |
 | ML-DSA variant | Pure ML-DSA, hedged | Pure ML-DSA | Pure ML-DSA, hedged |
-| ML-DSA secret key stored as | The expanded key, 4032 bytes | The 32-byte seed | The 32-byte seed |
-| Component order in keys and signatures | Ed25519 first | ML-DSA first | Ed25519 first |
+| ML-DSA secret key stored as | The 32-byte seed (secret key format v1: the expanded key, 4032 bytes) | The 32-byte seed | The 32-byte seed |
+| Component order in keys and signatures | Ed25519 first, also in the secret key payload | ML-DSA first | Ed25519 first |
 
 All three accept a signature only if both components verify, and all three sign a message that holds a hash rather than the raw data. What a signature asserts besides the data is up to the application in RFC 10073; pqsign's record makes both algorithms sign the key ID, the signer's fingerprint and the trusted comment, and RFC 9980 covers its metadata through the OpenPGP signature packet.
 
@@ -243,9 +260,8 @@ Nesting goes one step further than both standards in one respect: ML-DSA-65 comm
 
 ### Possible alignment
 
-These are directions a future format version could take, not decisions:
+Secret key format v2, since pqsign 0.4, already stores ML-DSA-65 secret keys as the 32-byte seed, as FIPS 204, RFC 10073 and RFC 9980 do. One direction a future signature format version could take, not a decision:
 
-- **Store ML-DSA-65 secret keys as the 32-byte seed**, as FIPS 204, RFC 10073 and RFC 9980 do. Seeds are smaller and cannot be malformed, unlike expanded keys; `fips204` accepted malformed expanded keys before 0.5. It needs a new secret key format version; existing key files would keep working.
 - **Use RFC 10073's ML-DSA-65 + Ed25519 algorithm as a new signature suite**, with pqsign's record as the message. The construction would be one that reviewers recognize and that can be checked against the RFC's test vectors, at the cost of the nesting and of a new signature format.
 
 ## Implementation Status
@@ -262,7 +278,7 @@ pqsign itself has not been independently audited. It relies on these crates for 
 
 No ML-DSA implementation in Rust is both audited and stable yet. RustCrypto's [`ml-dsa`](https://github.com/RustCrypto/signatures/tree/master/ml-dsa) has never been independently audited, and [`libcrux-ml-dsa`](https://github.com/cryspen/libcrux) is partly formally verified but still pre-release, with a 2026 advisory for accepting invalid signatures ([RUSTSEC-2026-0077](https://rustsec.org/advisories/RUSTSEC-2026-0077.html)).
 
-pqsign's tests run [Wycheproof's ML-DSA-65 vectors](../tests/vectors/wycheproof/README.md) against `fips204`. It passes all 210 verification cases, including the malformed hint encodings and norm violations that the other two crates accepted, and signs exactly as expected from the expanded secret keys pqsign stores. It rejects every malformed secret key in the vectors; before 0.5 it accepted two whose coefficients were out of range, which pqsign never creates.
+pqsign's tests run [Wycheproof's ML-DSA-65 vectors](../tests/vectors/wycheproof/README.md) against `fips204`. It passes all 210 verification cases, including the malformed hint encodings and norm violations that the other two crates accepted, and signs exactly as expected from the expanded secret keys of secret key format v1. Since pqsign 0.4, secret keys are stored as seeds, and Wycheproof's seeded vectors check that fips204 and pqsign rebuild the right key from each seed and sign with it as expected. `fips204` rejects every malformed secret key in the vectors; before 0.5 it accepted two whose coefficients were out of range, which pqsign never creates.
 
 This is what the hybrid design is for. A signature is accepted only when both the Ed25519 and the ML-DSA-65 signature verify, so a flaw in the young ML-DSA implementation does not on its own let anyone forge a signature, and neither does a flaw in Ed25519.
 
