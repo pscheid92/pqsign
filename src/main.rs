@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
+use std::panic;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::thread;
 
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
@@ -19,7 +21,23 @@ const EXIT_ERROR: u8 = 2;
 
 const EXIT_STATUS_HELP: &str = "Exit status: 0 on success, 1 if a signature does not verify, 2 for any other error.";
 
+/// Stack size of the thread that runs pqsign. `fips204` keeps ML-DSA-65 keys (17 KiB expanded) and its working values
+/// on the stack: an unoptimized `sign` needs 512 to 768 KiB on macOS and has overflowed the 1 MiB a Windows main thread
+/// gets. 8 MiB matches the main thread on Linux and macOS and leaves room on every platform.
+const STACK_SIZE: usize = 8 * 1024 * 1024;
+
 fn main() -> ExitCode {
+    // Named "main" so that a panic message reads the same as on the real main thread.
+    let worker = thread::Builder::new().name("main".into()).stack_size(STACK_SIZE).spawn(run);
+    match worker {
+        // Re-raise a panic here so that it exits with the same status as a panic on the main thread.
+        Ok(handle) => handle.join().unwrap_or_else(|payload| panic::resume_unwind(payload)),
+        // The thread could not be created (out of memory): try on the main thread instead.
+        Err(_) => run(),
+    }
+}
+
+fn run() -> ExitCode {
     match Cli::parse().run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
