@@ -1722,6 +1722,7 @@ fn test_cli_change_password_notes_a_key_that_was_accessible_by_others() {
     change(&old, &new).stderr(predicates::str::contains("note:").not());
 
     fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
-    change(&new, &old).stderr(predicates::str::contains("was accessible by other users (mode 0644)"));
+    let note = format!("note: {} was accessible by other users (mode 0644)", sk.display());
+    change(&new, &old).stderr(predicates::str::contains(note));
     assert_eq!(fs::metadata(&sk).unwrap().permissions().mode() & 0o777, 0o600);
 }

@@ -66,9 +66,10 @@ Defines the subcommands `generate`, `sign`, `change-password`, `verify`, `inspec
 - `FileHeader`, `FileType`: the `PQSN` header every binary file starts with.
 - Public keys: one text line, `pqsign:v1:` plus base64. Secret keys: Argon2id + XChaCha20-Poly1305, parameters in
   `Kdf`; encoded only in secret key format v2, which stores the seeds, and read in format v1 too.
-  `change_secret_key_password` re-encrypts either format under a new password, keeping the header and the payload
-  bytes. Reading is `parse` (every check that needs no password) and then `open`; `seal` writes everything after
-  the header for both writers. Signatures: signature format v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
+  `change_secret_key_password` (`change_password` in `secret_key.rs`) re-encrypts either format under a new
+  password, keeping the header and the payload bytes. Reading is `parse` (every check that needs no password) and
+  then `open`; `seal` writes everything after the header for both writers. Signatures: signature format v1 and v2
+  files, plus the trusted comment rules (`check_trusted_comment`).
 - `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature.
 - `file` (internal): every read and write of a pqsign file goes through here.
 
@@ -115,15 +116,15 @@ These hold across module boundaries. A change that breaks one needs a deliberate
   Writes go to a temporary file next to the destination, which is synced and then renamed into place.
   `write_key_pair` places the public key first and the secret key last, so if the last step fails the old secret
   key survives; without `--overwrite`, the public key it just placed is removed again.
-- **File permissions (Unix).** Secret keys are exactly `0600`, also when `change-password` replaces one; public keys and signatures follow the umask;
-  directories pqsign creates are at most `0700`.
+- **File permissions (Unix).** Secret keys are exactly `0600`, also when `change-password` replaces one; public
+  keys and signatures follow the umask; directories pqsign creates are at most `0700`.
 - **KDF limits.** The command line always uses `Kdf::argon2id()` (256 MiB, 3 passes). Key files asking for more than
   1024 MiB or 16 passes are rejected, and pqsign never writes a key it would refuse to read.
 - **Strict parsing, with one exception.** Signature format v2 files and secret key files in both formats reject
   trailing bytes; public keys, in text or binary form, ignore anything after the ML-DSA-65 key.
 - **Every secret key format stays readable.** pqsign encodes only secret key format v2; `change-password`
-  re-encrypts a format v1 payload unchanged, and no format v1 encoder exists. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the release that introduced
-  secret key format v2 keep both readable.
+  re-encrypts a format v1 payload unchanged, and no format v1 encoder exists. Committed fixtures written by pqsign
+  0.1.1, 0.3.1 and the release that introduced secret key format v2 keep both readable.
 - **Seed derivation is frozen.** Secret key format v2 stores only the seeds and rebuilds the keys on every load
   (FIPS 204 `KeyGen_internal`, RFC 8032), so that derivation must never change. RFC 8032 and Wycheproof
   known-answer tests and the format v2 fixture pin it; a different derivation needs a new secret key format
@@ -132,8 +133,8 @@ These hold across module boundaries. A change that breaks one needs a deliberate
 ## Side effects
 
 - **Files written:** the key pair (`~/.pqsign/default.key` and `.pub` by default), a secret key rewritten by
-  `change-password`, signatures (`<file>.pqsig` by default), and temporary files named `.<name>.<random>.tmp` next to them while a write is in progress. The parent
-  directory is synced afterwards, on Unix and best effort.
+  `change-password`, signatures (`<file>.pqsig` by default), and temporary files named `.<name>.<random>.tmp` next
+  to them while a write is in progress. The parent directory is synced afterwards, on Unix and best effort.
 - **Files read:** the file being signed or verified, in full, for its BLAKE2b-512 hash; key and signature files;
   a password file up to its first line ending, including `--new-password-file`.
 - **Terminal and standard input:** the password prompts, which for `change-password` are the current and the new

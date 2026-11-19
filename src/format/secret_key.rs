@@ -200,8 +200,8 @@ fn check_ciphertext_len(version: u8, len: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// Decrypts the payload of either format version into a buffer that is wiped on drop. A future re-encryption
-/// command can encrypt the same bytes again without knowing the payload layout.
+/// Decrypts the payload of either format version into a buffer that is wiped on drop. [`change_password`]
+/// encrypts the same bytes again without knowing the payload layout.
 fn decrypt_payload(
     ciphertext: &[u8],
     password: &Zeroizing<String>,
@@ -327,10 +327,11 @@ mod tests {
 
     fn assert_bug_report(result: Result<(), Error>) {
         match result {
-            Err(Error::Crypto(msg)) => {
-                assert!(msg.contains("did not read back"), "got: {msg}");
-                assert!(msg.contains("left unchanged"), "got: {msg}");
-            }
+            Err(Error::Crypto(msg)) => assert_eq!(
+                msg,
+                "the re-encrypted secret key did not read back with the new password; the secret key file was left \
+                 unchanged; please report this as a pqsign bug"
+            ),
             Err(other) => panic!("expected the bug-report error, got: {other}"),
             Ok(()) => panic!("a broken rewrite passed the read-back"),
         }
@@ -361,5 +362,9 @@ mod tests {
         assert_bug_report(check_rewritten(&longer, &original, &pw("new"), &opened, &KDF));
 
         assert_bug_report(check_rewritten(&rewritten, &original, &pw("new"), &opened, &OTHER_KDF));
+
+        let mut kdf_block = rewritten.clone();
+        kdf_block[FileHeader::LEN + 9] ^= 0x01;
+        assert_bug_report(check_rewritten(&kdf_block, &original, &pw("new"), &opened, &KDF));
     }
 }

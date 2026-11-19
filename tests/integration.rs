@@ -490,7 +490,7 @@ fn test_change_password_in_a_read_only_directory_leaves_the_file() {
     let result = change(sk_path.clone(), "old-pw", "new-pw");
     fs::set_permissions(&key_dir, fs::Permissions::from_mode(0o700)).unwrap();
 
-    assert!(result.is_err());
+    assert!(matches!(result, Err(pqsign::errors::Error::IoPath { .. })), "got: {result:?}");
     assert_eq!(fs::read(&sk_path).unwrap(), before);
     assert_eq!(file_names(&key_dir), ["test.key", "test.key.pub"]);
 }

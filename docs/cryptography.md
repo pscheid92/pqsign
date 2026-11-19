@@ -219,7 +219,7 @@ Offset  Size  Field
 71      80    Encrypted payload and Poly1305 tag
 ```
 
-A secret key file in format v2 is 151 bytes. A secret key file in format v1, written by pqsign 0.1 to 0.3, has version 1 in its header and continues with:
+A secret key file in format v2 is 151 bytes. A secret key file in format v1, written by pqsign 0.1 to 0.3 and possibly re-encrypted by `change-password` since, has version 1 in its header and continues with:
 
 ```
 Offset  Size  Field

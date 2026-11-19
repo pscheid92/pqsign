@@ -57,7 +57,7 @@ pub struct FileHeader {
 
 impl FileHeader {
     /// The serialized length: magic, version, file type and key ID.
-    pub const LEN: usize = MAGIC.len() + 1 + 1 + KeyId::LEN;
+    pub(crate) const LEN: usize = MAGIC.len() + 1 + 1 + KeyId::LEN;
 
     /// A header for the newest format version of `file_type`.
     pub fn new(file_type: FileType, key_id: KeyId) -> Self {

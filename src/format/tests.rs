@@ -656,6 +656,8 @@ fn test_change_password_keeps_the_key_and_header() {
     assert_eq!(after.len(), 151);
     assert_eq!(after[..FileHeader::LEN], before[..FileHeader::LEN]);
     assert_eq!(after[14..31], kdf_block(&NEW_KDF));
+    assert_ne!(after[31..47], before[31..47], "salt");
+    assert_ne!(after[47..71], before[47..71], "nonce");
 
     let reloaded = read_secret_key(&path, pw("new")).unwrap();
     assert_eq!(reloaded.key_id(), key.key_id());
