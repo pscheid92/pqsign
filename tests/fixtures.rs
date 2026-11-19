@@ -127,3 +127,12 @@ fn test_v1_secret_key_header_key_id_mismatch_is_rejected() {
         Ok(_) => panic!("a key with a changed header key ID was loaded"),
     }
 }
+
+/// A secret key in format v2, written once when the format was introduced. Every later version must load it to
+/// the same key, so a change in how a seed becomes a key fails here.
+#[test]
+fn test_v2_secret_key_fixture_signs() {
+    let path = repo("tests/fixtures/secret-keys/v2.key");
+    assert_eq!(fs::metadata(&path).unwrap().len(), 151);
+    check_secret_key_fixture("v2.key", "005D87F817789998", "BLAKE2b-256:AF2H+Bd4mZjatXH099oBMQFnU4+6QwLGi5XVul4ekm0");
+}
