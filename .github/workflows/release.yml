@@ -95,7 +95,7 @@ jobs:
       # Pinned like the actions. cargo-auditable embeds the dependency list in the binary; cargo-cyclonedx writes the
       # SBOM published next to each archive.
       - name: Install build tools
-        run: cargo install --locked cargo-auditable@0.7.7 cargo-cyclonedx@0.5.9
+        run: cargo install --locked cargo-auditable@0.7.7 cargo-cyclonedx@0.5.10
 
       # The script holds the flags that make the build reproducible, so people rebuilding a release use the same.
       - name: Build
