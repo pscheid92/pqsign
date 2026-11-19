@@ -1525,3 +1525,203 @@ fn test_cli_escapes_the_paths_it_prints() {
     check(cmd().args(["verify", missing, "-p", pk]).assert().failure());
     check(cmd().args(["sign", file, "-x", invalid]).assert().failure());
 }
+
+// -- change-password --
+
+/// Writes `password` and a line ending to `name` in `dir`, readable by the owner only.
+fn password_file(dir: &std::path::Path, name: &str, password: &str) -> std::path::PathBuf {
+    let path = dir.join(name);
+    fs::write(&path, format!("{password}\n")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    path
+}
+
+/// The only CLI test that writes and reads back at the default Argon2id parameters: two derivations at
+/// 256 MiB, and a third for the `sign` afterwards.
+#[test]
+fn test_cli_change_password_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let pk = dir.path().join("test.key.pub");
+    let file = dir.path().join("msg.txt");
+    fs::write(&file, b"data").unwrap();
+    generate_key(&sk);
+    let public_key = fs::read(&pk).unwrap();
+    let old = password_file(dir.path(), "old", "test-pw");
+    let new = password_file(dir.path(), "new", "new-pw");
+
+    cmd()
+        .args(["change-password", "-s", sk.to_str().unwrap()])
+        .args(["--password-file", old.to_str().unwrap(), "--new-password-file", new.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout("")
+        .stderr(predicates::str::contains("(format v2)").and(predicates::str::contains("KDF:         Argon2id, 256 MiB, 3 passes")));
+
+    assert_eq!(fs::read(&pk).unwrap(), public_key);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&sk).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    cmd()
+        .args(["inspect", sk.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Memory:      256 MiB").and(predicates::str::contains("Ops:         3")));
+
+    cmd()
+        .args([
+            "sign",
+            file.to_str().unwrap(),
+            "-s",
+            sk.to_str().unwrap(),
+            "--password-file",
+            new.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    cmd()
+        .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_cli_change_password_current_password_from_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    generate_key(&sk);
+    let new = password_file(dir.path(), "new", "new-pw");
+
+    cmd()
+        .args(["change-password", "-s", sk.to_str().unwrap(), "--password-stdin"])
+        .args(["--new-password-file", new.to_str().unwrap()])
+        .write_stdin("test-pw\n")
+        .assert()
+        .success();
+
+    format::read_secret_key(&sk, Zeroizing::new("new-pw".into())).unwrap();
+}
+
+#[test]
+fn test_cli_change_password_password_flags_conflict() {
+    cmd()
+        .args(["change-password", "--password-stdin", "--password-file", "pw"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("cannot be used with"));
+}
+
+#[test]
+fn test_cli_change_password_help_names_the_current_password() {
+    cmd()
+        .args(["change-password", "--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("give the current password").and(predicates::str::contains("generate a new key")));
+}
+
+#[test]
+fn test_cli_change_password_rejects_an_empty_new_password_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    generate_key(&sk);
+    let before = fs::read(&sk).unwrap();
+    let old = password_file(dir.path(), "old", "test-pw");
+    let new = password_file(dir.path(), "new", "");
+
+    cmd()
+        .args(["change-password", "-s", sk.to_str().unwrap()])
+        .args(["--password-file", old.to_str().unwrap(), "--new-password-file", new.to_str().unwrap()])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicates::str::contains("password cannot be empty"));
+
+    assert_eq!(fs::read(&sk).unwrap(), before);
+}
+
+/// The current password comes from a file, so the new-password prompt is the one that fails, with the hint for
+/// the new password. Only meaningful without a controlling terminal (CI); skipped in an interactive shell.
+#[cfg(unix)]
+#[test]
+fn test_cli_change_password_without_terminal_requires_new_password_file() {
+    if fs::File::open("/dev/tty").is_ok() {
+        eprintln!("skipped: a controlling terminal is available");
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    generate_key(&sk);
+    let before = fs::read(&sk).unwrap();
+    let old = password_file(dir.path(), "old", "test-pw");
+
+    cmd()
+        .args(["change-password", "-s", sk.to_str().unwrap(), "--password-file", old.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("--new-password-file"));
+
+    assert_eq!(fs::read(&sk).unwrap(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cli_change_password_warns_about_password_files_accessible_by_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    generate_key(&sk);
+    let old = password_file(dir.path(), "old", "test-pw");
+    let new = password_file(dir.path(), "new", "new-pw");
+    fs::set_permissions(&old, fs::Permissions::from_mode(0o640)).unwrap();
+    fs::set_permissions(&new, fs::Permissions::from_mode(0o640)).unwrap();
+
+    let output = cmd()
+        .args(["change-password", "-s", sk.to_str().unwrap()])
+        .args(["--password-file", old.to_str().unwrap(), "--new-password-file", new.to_str().unwrap()])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    let stderr = String::from_utf8(output).unwrap();
+
+    for path in [&old, &new] {
+        let warning = format!("warning: password file {} is accessible by other users (mode 0640)", path.display());
+        assert_eq!(stderr.matches(&warning).count(), 1, "stderr: {stderr}");
+    }
+}
+
+/// The rewritten file is private, but a file others could read may have been copied under the old password.
+#[cfg(unix)]
+#[test]
+fn test_cli_change_password_notes_a_key_that_was_accessible_by_others() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sk = dir.path().join("test.key");
+    let old = password_file(dir.path(), "old", "test-pw");
+    let new = password_file(dir.path(), "new", "new-pw");
+    let change = |from: &std::path::Path, to: &std::path::Path| {
+        cmd()
+            .args(["change-password", "-s", sk.to_str().unwrap()])
+            .args(["--password-file", from.to_str().unwrap(), "--new-password-file", to.to_str().unwrap()])
+            .assert()
+            .success()
+    };
+    generate_key(&sk);
+
+    change(&old, &new).stderr(predicates::str::contains("note:").not());
+
+    fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
+    change(&new, &old).stderr(predicates::str::contains("was accessible by other users (mode 0644)"));
+    assert_eq!(fs::metadata(&sk).unwrap().permissions().mode() & 0o777, 0o600);
+}
