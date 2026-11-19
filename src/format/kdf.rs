@@ -71,6 +71,15 @@ impl Kdf {
     }
 }
 
+/// `Argon2id, 256 MiB, 3 passes`: the parameters a key is written with, for status lines.
+impl std::fmt::Display for Kdf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Kdf::Argon2id { mem_limit, ops_limit } = *self;
+        let passes = if ops_limit == 1 { "pass" } else { "passes" };
+        write!(f, "Argon2id, {}, {ops_limit} {passes}", exact_size(mem_limit))
+    }
+}
+
 /// In MiB when whole, else in KiB or bytes, so a value just over a limit is not rounded down onto it.
 pub(super) fn exact_size(bytes: u64) -> String {
     if bytes.is_multiple_of(MIB) {

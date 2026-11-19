@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use zeroize::Zeroizing;
 
-use pqsign::commands::{generate, inspect, sign, verify};
+use pqsign::commands::{change_password, generate, inspect, sign, verify};
 use pqsign::domain::{KeyPair, SecretSeeds, SignatureFormat};
 use pqsign::format::{self, Kdf};
 use pqsign::password::PasswordSource;
@@ -390,4 +390,107 @@ fn test_sign_does_not_create_missing_directories() {
         "got: {err}"
     );
     assert!(!dir.path().join("missing").exists());
+}
+
+// -- change-password --
+
+fn change(secret_key: PathBuf, old: &str, new: &str) -> Result<(), pqsign::errors::Error> {
+    change_password::run(change_password::Options {
+        secret_key: Some(secret_key),
+        password: PasswordSource::Given(pw(old)),
+        new_password: PasswordSource::Given(pw(new)),
+        kdf: TEST_KDF,
+    })
+}
+
+#[test]
+fn test_change_password_keeps_the_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    keygen(sk_path.clone(), "old-pw", false).unwrap();
+    let before = format::read_secret_key(&sk_path, pw("old-pw")).unwrap();
+
+    change(sk_path.clone(), "old-pw", "new-pw").unwrap();
+
+    let after = format::read_secret_key(&sk_path, pw("new-pw")).unwrap();
+    assert_eq!(after.key_id(), before.key_id());
+    assert_eq!(after.fingerprint(), before.fingerprint());
+    assert!(matches!(
+        format::read_secret_key(&sk_path, pw("old-pw")),
+        Err(pqsign::errors::Error::WrongPassword)
+    ));
+    assert_eq!(file_names(dir.path()), ["test.key", "test.key.pub"]);
+}
+
+#[test]
+fn test_change_password_rejects_an_empty_or_too_long_new_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    keygen(sk_path.clone(), "old-pw", false).unwrap();
+    let before = fs::read(&sk_path).unwrap();
+
+    let result = change(sk_path.clone(), "old-pw", "");
+    assert!(matches!(result, Err(pqsign::errors::Error::PasswordEmpty)));
+
+    let too_long = "x".repeat(pqsign::password::MAX_PASSWORD_LEN + 1);
+    let result = change(sk_path.clone(), "old-pw", &too_long);
+    assert!(matches!(result, Err(pqsign::errors::Error::PasswordTooLong { .. })));
+
+    assert_eq!(fs::read(&sk_path).unwrap(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_change_password_writes_through_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("real.key");
+    let link = dir.path().join("link.key");
+    keygen(target.clone(), "old-pw", false).unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    change(link.clone(), "old-pw", "new-pw").unwrap();
+
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    format::read_secret_key(&target, pw("new-pw")).unwrap();
+}
+
+/// The rename gives the changed path a new file; another hard link keeps the old one, under the old password.
+#[cfg(unix)]
+#[test]
+fn test_change_password_leaves_other_hard_links_on_the_old_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    let other = dir.path().join("other.key");
+    keygen(sk_path.clone(), "old-pw", false).unwrap();
+    fs::hard_link(&sk_path, &other).unwrap();
+
+    change(sk_path.clone(), "old-pw", "new-pw").unwrap();
+
+    format::read_secret_key(&sk_path, pw("new-pw")).unwrap();
+    format::read_secret_key(&other, pw("old-pw")).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn test_change_password_in_a_read_only_directory_leaves_the_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let key_dir = dir.path().join("keys");
+    fs::create_dir(&key_dir).unwrap();
+    let sk_path = key_dir.join("test.key");
+    keygen(sk_path.clone(), "old-pw", false).unwrap();
+    let before = fs::read(&sk_path).unwrap();
+    fs::set_permissions(&key_dir, fs::Permissions::from_mode(0o500)).unwrap();
+    if fs::write(key_dir.join("probe"), b"").is_ok() {
+        eprintln!("skipped: the directory mode is ignored, as for root");
+        return;
+    }
+
+    let result = change(sk_path.clone(), "old-pw", "new-pw");
+    fs::set_permissions(&key_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(matches!(result, Err(pqsign::errors::Error::IoPath { .. })), "got: {result:?}");
+    assert_eq!(fs::read(&sk_path).unwrap(), before);
+    assert_eq!(file_names(&key_dir), ["test.key", "test.key.pub"]);
 }

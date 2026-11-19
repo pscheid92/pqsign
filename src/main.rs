@@ -7,7 +7,7 @@ use std::thread;
 
 use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
-use pqsign::commands::{generate, inspect, sign, verify};
+use pqsign::commands::{change_password, generate, inspect, sign, verify};
 use pqsign::domain::SignatureFormat;
 use pqsign::errors::Error;
 use pqsign::format::Kdf;
@@ -25,6 +25,16 @@ const EXIT_STATUS_HELP: &str = "Exit status: 0 on success, 1 if a signature does
 /// on the stack: an unoptimized `sign` needs 512 to 768 KiB on macOS and has overflowed the 1 MiB a Windows main thread
 /// gets. 8 MiB matches the main thread on Linux and macOS and leaves room on every platform.
 const STACK_SIZE: usize = 8 * 1024 * 1024;
+
+const CHANGE_PASSWORD_HELP: &str = "\
+The key, its key ID, its fingerprint and its .pub file stay the same, so existing signatures still verify and \
+nobody needs the public key again. The file is replaced, not edited in place, and written with pqsign's \
+default Argon2id parameters (256 MiB, 3 passes).
+
+--password-stdin and --password-file give the current password; --new-password-file gives the new one.
+
+A new password does not protect copies of the secret key file made before the change: backups, synced copies, \
+other hard links to the file. If the secret key file and its password were exposed together, generate a new key.";
 
 fn main() -> ExitCode {
     // Named "main" so that a panic message reads the same as on the real main thread.
@@ -132,6 +142,20 @@ enum Command {
         password: PasswordArgs,
     },
 
+    /// Change the password of a secret key
+    #[command(after_help = CHANGE_PASSWORD_HELP)]
+    ChangePassword {
+        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
+        secret_key: Option<PathBuf>,
+
+        #[command(flatten)]
+        password: PasswordArgs,
+
+        /// Read the new password from the first line of a file
+        #[arg(long, value_name = "PATH")]
+        new_password_file: Option<PathBuf>,
+    },
+
     /// Verify a signature
     #[command(
         after_help = "Exit status: 0 if the signature is valid, 1 if it does not verify (the file changed or another key \
@@ -214,6 +238,17 @@ impl Cli {
                 trusted_comment,
                 password: password.into(),
                 format: format.into(),
+            }),
+
+            Command::ChangePassword {
+                secret_key,
+                password,
+                new_password_file,
+            } => change_password::run(change_password::Options {
+                secret_key,
+                password: password.into(),
+                new_password: new_password_file.map_or(PasswordSource::Prompt, PasswordSource::File),
+                kdf: Kdf::argon2id(),
             }),
 
             Command::Verify {
