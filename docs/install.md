@@ -110,9 +110,9 @@ Release binaries after 0.2.0 are reproducible: the same tag, built with the same
 
 ```bash
 git clone https://github.com/pscheid92/pqsign && cd pqsign && git checkout vX.Y.Z
-rustup toolchain install 1.99.0 --target x86_64-unknown-linux-gnu
+rustup toolchain install 1.100.0 --target x86_64-unknown-linux-gnu
 cargo install --locked cargo-auditable@0.7.7
-RUSTUP_TOOLCHAIN=1.99.0 scripts/release-build.sh x86_64-unknown-linux-gnu
+RUSTUP_TOOLCHAIN=1.100.0 scripts/release-build.sh x86_64-unknown-linux-gnu
 
 # Compare with the binary inside the signed archive
 sha256sum target/x86_64-unknown-linux-gnu/release/pqsign
