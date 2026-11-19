@@ -53,16 +53,16 @@ mldsa65_sig = ML-DSA-65.Sign(mldsa65_sk, record || ed25519_sig, ctx="pqsign-v2-m
 
 Each algorithm signs the whole record on its own, so the file, the comment, the key ID and the signer stay protected even if one algorithm is broken or a verifier only checks one of them.
 
-### Format v1
+### Signature format v1
 
-pqsign 0.1 wrote format v1, which pqsign still verifies and writes on request with `sign --format v1`, for verifiers older than 0.2:
+pqsign 0.1 wrote signature format v1, which pqsign still verifies and writes on request with `sign --format v1`, for verifiers older than 0.2:
 
 ```
 ed25519_sig = Ed25519.Sign(ed25519_sk, "pqsign-ed25519" || file_hash || trusted_comment)
 mldsa65_sig = ML-DSA-65.Sign(mldsa65_sk, file_hash || ed25519_sig, ctx="pqsign-mldsa65")
 ```
 
-In v1, neither algorithm signs the key ID, and ML-DSA-65 covers the comment only through the Ed25519 signature bytes. A full verification still binds the comment, because changing it breaks the Ed25519 check, and defeating that even with Ed25519 broken would take a second preimage in SHA-512. But a verifier that checks only ML-DSA-65 would accept a changed comment, and the key ID can be changed freely: someone can copy another key's ID into their own public key and v1 signature, and the signature still verifies. `verify` notes this after a v1 signature checks out, and `inspect` marks a v1 key ID as not signed.
+In signature format v1, neither algorithm signs the key ID, and ML-DSA-65 covers the comment only through the Ed25519 signature bytes. A full verification still binds the comment, because changing it breaks the Ed25519 check, and defeating that even with Ed25519 broken would take a second preimage in SHA-512. But a verifier that checks only ML-DSA-65 would accept a changed comment, and the key ID can be changed freely: someone can copy another key's ID into their own public key and v1 signature, and the signature still verifies. `verify` notes this after a v1 signature checks out, and `inspect` marks a v1 key ID as not signed.
 
 ### Why Nesting?
 
@@ -83,7 +83,7 @@ Note: Ed25519 context is prepended manually to the message rather than using RFC
 
 ### Trusted Comment Binding
 
-The trusted comment (timestamp, filename, user-provided text) is part of the record both algorithms sign, so modifying it invalidates both signatures. In v1 it is part of the Ed25519 message only, and bound to ML-DSA-65 through the Ed25519 signature.
+The trusted comment (timestamp, filename, user-provided text) is part of the record both algorithms sign, so modifying it invalidates both signatures. In signature format v1 it is part of the Ed25519 message only, and bound to ML-DSA-65 through the Ed25519 signature.
 
 The comment is `timestamp:<unix time>\tfile:<file name>`, followed by a tab and the text given with `-t`. The file name is the base name only, so a signature does not reveal the directory it was signed in.
 
@@ -93,9 +93,9 @@ A trusted comment is at most 1024 bytes and may not contain control characters o
 
 ## Key IDs and Fingerprints
 
-Every key file and signature carries an 8-byte **key ID**, so a signature can be matched with the key that made it. Since pqsign 0.2, a new key's ID is the first 8 bytes of its fingerprint; keys generated with 0.1 have random IDs and keep working. A key ID locates a key but does not identify it: 64 bits are too few to rule out another key with the same ID. In v2 signatures both algorithms sign the key ID; in v1 signatures neither does.
+Every key file and signature carries an 8-byte **key ID**, so a signature can be matched with the key that made it. Since pqsign 0.2, a new key's ID is the first 8 bytes of its fingerprint; keys generated with 0.1 have random IDs and keep working. A key ID locates a key but does not identify it: 64 bits are too few to rule out another key with the same ID. In signature format v2 both algorithms sign the key ID; in signature format v1 neither does.
 
-v2 signatures also carry the signer's fingerprint, which both algorithms sign. `inspect` shows it as the claimed signer, and `verify` checks it first, so a signature checked against the wrong key fails with a message that names both keys.
+Signature format v2 files also carry the signer's fingerprint, which both algorithms sign. `inspect` shows it as the claimed signer, and `verify` checks it first, so a signature checked against the wrong key fails with a message that names both keys.
 
 A key's **fingerprint** identifies it:
 
@@ -166,7 +166,7 @@ Secret material is wiped from memory as soon as it is no longer needed:
 
 - `SecretKey` implements `ZeroizeOnDrop`, and so do the Ed25519 and ML-DSA-65 key types inside it, and `SecretSeeds` and `MlDsa65Seed`, which hold the seeds a key is generated from.
 - The byte wrappers for secret keys used while reading and writing key files wipe themselves on drop, print as `[REDACTED]`, and cannot be cloned or compared.
-- Key generation seeds, passwords, the serialized and the decrypted key payload are held in zeroizing buffers.
+- Passwords, the serialized secret key format v2 payload and the decrypted key payload are held in zeroizing buffers. Key generation seeds go straight into `SecretSeeds` and `MlDsa65Seed`, with no intermediate buffer.
 - The key derived by Argon2id and the cipher's copy of it are wiped on drop.
 - Argon2id's initial hash and its 256 MiB of working memory are wiped after every key derivation.
 
@@ -191,7 +191,7 @@ Offset  Size  Field
 
 Each file type has its own version, so a new signature or secret key format does not relabel the other files. Readers reject version 0 and versions newer than they support for that file type, with a message naming the file type and the version required.
 
-A v2 signature file continues with:
+A signature format v2 file continues with:
 
 ```
 Offset  Size  Field
@@ -217,7 +217,19 @@ Offset  Size  Field
 71      80    Encrypted payload and Poly1305 tag
 ```
 
-A secret key file in format v2 is 151 bytes. Format v1 has the same first 71 bytes, with version 1 in the header, followed by 4088 bytes of encrypted payload and tag, for 4159 bytes. Secret key files in both formats reject trailing bytes.
+A secret key file in format v2 is 151 bytes. A secret key file in format v1, written by pqsign 0.1 to 0.3, has version 1 in its header and continues with:
+
+```
+Offset  Size  Field
+14      1     KDF: 0x02 = Argon2id
+15      8     Argon2id memory in bytes (u64, little-endian)
+23      8     Argon2id iterations (u64, little-endian)
+31      16    Argon2id salt
+47      24    XChaCha20-Poly1305 nonce
+71      4088  Encrypted payload and Poly1305 tag
+```
+
+A secret key file in format v1 is 4159 bytes. Secret key files in both formats reject trailing bytes.
 
 The KDF byte follows libsodium's numbering, in which 0x01 is Argon2i and 0x02 is Argon2id. pqsign only uses Argon2id and rejects every other value, 0x01 included.
 
@@ -286,6 +298,6 @@ Vulnerabilities are reported as described in [SECURITY.md](../SECURITY.md).
 
 ## Known Limitations
 
-- **One algorithm suite** — v2 signatures name their algorithm suite, so a future version can add another, but only Ed25519 + ML-DSA-65 exists today and there is no negotiation.
+- **One algorithm suite** — signature format v2 files name their algorithm suite, so a future version can add another, but only Ed25519 + ML-DSA-65 exists today and there is no negotiation.
 - **No streaming signatures** — the file is hashed in a single pass, but the hash must complete before signing begins. This is inherent to the prehash approach.
 - **BLAKE2b-512 is not post-quantum as a hash** — however, Grover's algorithm only halves the effective security of hash functions, leaving BLAKE2b-512 at 256-bit post-quantum security, which is more than sufficient.

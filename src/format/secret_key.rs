@@ -155,16 +155,22 @@ fn encrypt_payload(payload: &[u8], password: &Zeroizing<String>, kdf: &Kdf) -> R
 /// Frozen: decodes secret key format v1, which pqsign no longer writes. Never change it; the fixtures in
 /// tests/fixtures/secret-keys guard it.
 fn decode_v1(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> {
-    let mut r = Cursor::new(plaintext);
-    let ed25519 = Ed25519SecretKey::read_from(&mut r)?;
-    let mldsa65 = MlDsa65SecretKey::read_from(&mut r)?;
-    let payload_key_id = KeyId::read_from(&mut r)?;
+    let (ed25519, mldsa65, payload_key_id) = deserialize_payload(plaintext)?;
 
     if payload_key_id != header.key_id {
         return Err(Error::Crypto("decrypted key ID doesn't match header — file may be corrupt".into()));
     }
 
     SecretKey::from_parts(header.key_id, ed25519, mldsa65)
+}
+
+/// Frozen with [`decode_v1`]: the secret key format v1 payload, unchanged since pqsign 0.1.
+fn deserialize_payload(data: &[u8]) -> Result<(Ed25519SecretKey, MlDsa65SecretKey, KeyId), Error> {
+    let mut r = Cursor::new(data);
+    let ed25519 = Ed25519SecretKey::read_from(&mut r)?;
+    let mldsa65 = MlDsa65SecretKey::read_from(&mut r)?;
+    let key_id = KeyId::read_from(&mut r)?;
+    Ok((ed25519, mldsa65, key_id))
 }
 
 /// Format v2 stores no key ID in the payload. Keys made from the seeds must have the header's key ID, which for

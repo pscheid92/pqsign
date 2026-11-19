@@ -53,7 +53,8 @@ parsed arguments into the `Options` of each command, and turns the result into a
 - `SecretSeeds`: the two 32-byte seeds a new key is generated from, the RFC 8032 Ed25519 private key and the
   ML-DSA-65 seed ξ. `key_pair()` rebuilds the keys from them. It's the only input for writing secret key format v2.
 - `Fingerprint`: BLAKE2b-256 over a domain tag and both public keys, displayed as `BLAKE2b-256:<base64>`.
-- `Signature`, `SignatureFormat` (`V1`, `V2`): `SecretKey::sign` writes v2; v1 only through `sign_as`.
+- `Signature`, `SignatureFormat` (`V1`, `V2`): `SecretKey::sign` writes signature format v2; signature format v1
+  only through `sign_as`.
 - Fixed-size byte types for keys and signatures. The secret ones are wiped on drop, print as `[REDACTED]`, and
   cannot be cloned or compared.
 
@@ -116,8 +117,8 @@ These hold across module boundaries. A change that breaks one needs a deliberate
 - **Strict parsing, with one exception.** Signature format v2 files and secret key files in both formats reject
   trailing bytes; public keys, in text or binary form, ignore anything after the ML-DSA-65 key.
 - **Every secret key format stays readable.** pqsign writes only secret key format v2 and still reads format v1,
-  which it no longer writes. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the first v2 release keep both
-  readable.
+  which it no longer writes. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the release that introduced
+  secret key format v2 keep both readable.
 - **Seed derivation is frozen.** Secret key format v2 stores only the seeds and rebuilds the keys on every load
   (FIPS 204 `KeyGen_internal`, RFC 8032), so that derivation must never change. RFC 8032 and Wycheproof
   known-answer tests and the format v2 fixture pin it; a different derivation needs a new secret key format
