@@ -42,9 +42,9 @@ What exists today, in `src/format/secret_key.rs`:
 
 ## Design
 
-### 1. Library: split `read_with` into parse and open
+### 1. Library: split `read_with` into parse, decrypt and decode
 
-`read_with` does two things that `change_password` needs separately, and twice (once for the old file, once to read back the new bytes): parsing everything that needs no password, and opening the payload with one. They become two private functions, and `read_with` becomes their composition. Its behaviour, its order of checks and its error messages do not change.
+`read_with` does two things that `change_password` needs separately, and twice (once for the old file, once to read back the new bytes): parsing everything that needs no password, and opening the payload with one. They become three private functions, `parse`, `decrypt` and `decode`, and `read_with` becomes their composition. Its behaviour, its order of checks and its error messages do not change.
 
 ```rust
 /// Everything in a secret key file that can be checked without the password.
@@ -59,28 +59,22 @@ struct Parsed<'a> {
 /// Checks the header, the KDF parameters and the ciphertext length for the format version.
 fn parse(data: &[u8]) -> Result<Parsed<'_>, Error>;
 
-/// A decrypted payload and the key it decodes to. The plaintext is kept for re-encryption.
-struct Opened {
-    plaintext: Zeroizing<Vec<u8>>,
-    secret_key: SecretKey,
-}
+/// Decrypts the payload of a parsed file into a buffer that is wiped on drop.
+fn decrypt(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<Zeroizing<Vec<u8>>, Error>;
 
-/// Decrypts and decodes, so the key-ID check of the file's format version runs.
-fn open(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<Opened, Error>;
+/// Decodes a decrypted payload by format version, which runs that version's key-ID check.
+fn decode(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error>;
 
 pub fn read_with(path: &Path, password_fn: impl FnOnce(&Kdf) -> Result<Zeroizing<String>, Error>) -> Result<SecretKey, Error> {
     let data = file::read(path)?;
     let parsed = parse(&data)?;
     let password = password_fn(&parsed.kdf)?;
-    Ok(open(&parsed, &password)?.secret_key)
+    let plaintext = decrypt(&parsed, &password)?;
+    decode(&plaintext, &parsed.header)
 }
 ```
 
-`Opened` gets no `Drop` impl and no `Debug`: `read_with` moves `secret_key` out of a temporary `Opened`, which a `Drop` impl would forbid (E0509), and its plaintext already wipes itself through `Zeroizing`.
-
-This is the shape from implementation step 2 on. In step 1, which only refactors, `open` returns the `SecretKey` alone and `Opened` does not exist yet, so no field is unused while nothing reads the plaintext; step 2 extends it to `Opened` when `change_password` first needs the plaintext.
-
-`open` dispatches on `parsed.header.version` to `decode_v1` or `decode_v2` exactly as `read_with` does today. `decode_v1` and `deserialize_payload` are not touched.
+`decode` dispatches on the header version to `decode_v1` or `decode_v2` exactly as `read_with` did before. It returns the `SecretKey` straight to its caller. An earlier version of this design returned a struct holding both the plaintext and the key from one `open` function; on Windows, whose main thread has a 1 MiB stack, the extra moves of the large ML-DSA-65 key in a debug build overflowed the stack in `sign`, which already came close to that limit before this change. With `decrypt` and `decode` apart, `read_with` keeps the stack use it had. `decode_v1` and `deserialize_payload` are not touched.
 
 ### 2. Library: one writer for the sealed part
 
@@ -122,18 +116,22 @@ pub fn change_password(
     kdf.check()?;
     let data = file::read(path)?;
     let parsed = parse(&data)?;
-    let opened = open(&parsed, &current(&parsed.kdf)?)?;
+    let plaintext = decrypt(&parsed, &current(&parsed.kdf)?)?;
+    let (key_id, fingerprint) = {
+        let secret_key = decode(&plaintext, &parsed.header)?;
+        (secret_key.key_id(), secret_key.fingerprint())
+    };
 
     let new_password = new()?;
-    let rewritten = seal(&parsed.header, &opened.plaintext, &new_password, kdf)?;
-    check_rewritten(&rewritten, &data, &new_password, &opened, kdf)?;
+    let rewritten = seal(&parsed.header, &plaintext, &new_password, kdf)?;
+    check_rewritten(&rewritten, &data, &new_password, &plaintext, kdf)?;
     check_unchanged(path, &data)?;
 
     file::write(path, &rewritten, Access::Private)?;
     Ok(PasswordChanged {
         version: parsed.header.version,
-        key_id: opened.secret_key.key_id(),
-        fingerprint: opened.secret_key.fingerprint(),
+        key_id,
+        fingerprint,
         kdf: *kdf,
     })
 }
@@ -148,7 +146,7 @@ A successful run costs three Argon2id derivations in sequence: one with the file
 ```rust
 /// Reads the re-encrypted bytes back before they replace the file. Any failure here is a bug in `seal` or
 /// below, never a user error, so every failure becomes the same error.
-fn check_rewritten(rewritten: &[u8], original: &[u8], password: &Zeroizing<String>, opened: &Opened, kdf: &Kdf) -> Result<(), Error>;
+fn check_rewritten(rewritten: &[u8], original: &[u8], password: &Zeroizing<String>, plaintext: &[u8], kdf: &Kdf) -> Result<(), Error>;
 ```
 
 It requires, in order:
@@ -157,7 +155,7 @@ It requires, in order:
 2. the same first 14 bytes, the header;
 3. that `parse` accepts the bytes and reads back exactly `kdf`;
 4. that `decrypt_payload` with the new password succeeds;
-5. that the decrypted plaintext equals `opened.plaintext`.
+5. that the decrypted plaintext equals `plaintext`, the original's.
 
 It doesn't decode the plaintext again. With the same header and the same plaintext, the decode is deterministic, so comparing the plaintext is enough, and it avoids another copy of a format v1 key inside fips204, which pqsign can't wipe.
 
@@ -356,8 +354,8 @@ Nothing goes to stdout. There is no warning about the key file's own permissions
 
 The product decisions, such as format v1 handling, the Argon2id parameters, the command line and the read-back, are the brief's; its "Alternatives Weighed" lists what was rejected there. These are the draft's own choices:
 
-- **Split `read_with` into `parse` and `open`,** instead of a second reader for `change_password`. One copy of the checks that run before the password, so `change-password` can't drift from `sign` in what it accepts. The cost is a refactor of `read_with`, done first with the existing tests unchanged.
-- **Two steps, `parse` and `open`, rather than one `open_bytes(data, password_fn)` returning header, KDF, plaintext and key.** The read-back would then need a clone of the new password to pass through `password_fn`, one more copy of a secret. Two small structs avoid it.
+- **Split `read_with` into `parse`, `decrypt` and `decode`,** instead of a second reader for `change_password`. One copy of the checks that run before the password, so `change-password` can't drift from `sign` in what it accepts. The cost is a refactor of `read_with`, done first with the existing tests unchanged.
+- **Separate steps rather than one `open_bytes(data, password_fn)` returning header, KDF, plaintext and key.** The read-back would then need a clone of the new password to pass through `password_fn`, one more copy of a secret, and the key would travel inside a larger return value, which costs stack (see section 1).
 - **One `seal` for both writers,** instead of a re-encryption function next to `encode_v2`. One place writes the layout after the header.
 - **A new `NewPasswordPrompt` error variant,** instead of a hint field set by the caller or a hint parameter in `password.rs`. `password.rs` stays free of CLI option names, and `generate` and `sign` don't change.
 - **Prompt text as a parameter (`read_*_as`),** instead of changing the existing methods. `generate` and `sign` keep their calls; the two new methods are the existing bodies with one string each made a parameter.
@@ -383,7 +381,7 @@ The invariant, wherever it is stated, becomes: **pqsign encodes only secret key 
 **ARCHITECTURE.md**
 
 - Lines 31–33, `src/main.rs`: add `change-password` to the subcommands; "the other four" becomes "the other five".
-- Lines 64–66, the `format` module: secret keys are encoded in format v2, and `change-password` re-encrypts format v1 files without decoding them into a new layout. Name `parse`, `open`, `seal` and `change_password`.
+- Lines 64–66, the `format` module: secret keys are encoded in format v2, and `change-password` re-encrypts format v1 files without decoding them into a new layout. Name `parse`, `decrypt`, `decode`, `seal` and `change_password`.
 - Lines 106–108, "Ask for the password last": every check that needs no password runs before the first prompt, and `change-password` asks for the new password only after the current one has opened the file.
 - Line 113, file permissions: secret keys are exactly `0600`, also when `change-password` replaces one.
 - Lines 119–120, "Every secret key format stays readable": the invariant wording above.
@@ -458,7 +456,7 @@ CLI, in `tests/cli.rs`. `change-password` always writes with the default Argon2i
 
 | File | Change |
 |---|---|
-| `src/format/secret_key.rs` | `Parsed`, `parse`, `Opened`, `open`, `seal`, `change_password`, `check_rewritten`, `check_unchanged`, `PasswordChanged`; `read_with` and `encode_v2` rebuilt on them; two comments about format v1; the `check_rewritten` unit tests |
+| `src/format/secret_key.rs` | `Parsed`, `parse`, `decrypt`, `decode`, `seal`, `change_password`, `check_rewritten`, `check_unchanged`, `PasswordChanged`; `read_with` and `encode_v2` rebuilt on them; two comments about format v1; the `check_rewritten` unit tests |
 | `src/format/kdf.rs` | `impl fmt::Display for Kdf` |
 | `src/format/mod.rs` | re-export `change_password as change_secret_key_password` and `PasswordChanged` |
 | `src/format/tests.rs` | library tests |
@@ -474,8 +472,8 @@ CLI, in `tests/cli.rs`. `change-password` always writes with the default Argon2i
 
 ## Implementation order
 
-1. Split `read_with` into `parse` and `open`, with `open` returning the `SecretKey`, and move the sealed part of `encode_v2` into `seal`. No behaviour change; the existing tests must pass unchanged.
-2. Extend `open` to return `Opened` with the plaintext. Add `change_password`, `check_rewritten`, `check_unchanged`, `PasswordChanged`, `Display for Kdf`, `Error::KeyFileChanged`, and their library and fixture tests. Update the two `secret_key.rs` comments that say format v1 is never written.
+1. Split `read_with` into `parse` and the decrypt-and-decode step, and move the sealed part of `encode_v2` into `seal`. No behaviour change; the existing tests must pass unchanged.
+2. Split that step into `decrypt` and `decode`, so `change_password` keeps the plaintext. Add `change_password`, `check_rewritten`, `check_unchanged`, `PasswordChanged`, `Display for Kdf`, `Error::KeyFileChanged`, and their library and fixture tests. Update the two `secret_key.rs` comments that say format v1 is never written.
 3. Add the prompt parameters to `PasswordSource` and the `Error::NewPasswordPrompt` variant.
 4. Add the command and the CLI, with the command and CLI tests.
 5. Documentation, and the manual cross-check with pqsign 0.1.1 and 0.3.1 described under Release.

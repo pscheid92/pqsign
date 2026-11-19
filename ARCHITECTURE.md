@@ -67,9 +67,9 @@ Defines the subcommands `generate`, `sign`, `change-password`, `verify`, `inspec
 - Public keys: one text line, `pqsign:v1:` plus base64. Secret keys: Argon2id + XChaCha20-Poly1305, parameters in
   `Kdf`; encoded only in secret key format v2, which stores the seeds, and read in format v1 too.
   `change_secret_key_password` (`change_password` in `secret_key.rs`) re-encrypts either format under a new
-  password, keeping the header and the payload bytes. Reading is `parse` (every check that needs no password) and
-  then `open`; `seal` writes everything after the header for both writers. Signatures: signature format v1 and v2
-  files, plus the trusted comment rules (`check_trusted_comment`).
+  password, keeping the header and the payload bytes. Reading is `parse` (every check that needs no password), then
+  `decrypt` and `decode`; `seal` writes everything after the header for both writers. Signatures: signature format
+  v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
 - `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature.
 - `file` (internal): every read and write of a pqsign file goes through here.
 
