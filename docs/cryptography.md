@@ -144,13 +144,15 @@ That is 64 bytes, or 80 bytes encrypted with the 16-byte Poly1305 tag. On every 
 
 The payload holds no key ID. After decryption, the start of the rebuilt keys' fingerprint must equal the key ID in the plaintext header, which for secret key format v2 is always the fingerprint prefix. This catches a damaged or changed header, and also a pqsign build whose dependencies would turn the same seed into a different key. That derivation is part of the format and must never change. Known-answer tests pin it: RFC 8032's Ed25519 vectors and Wycheproof's seeded ML-DSA-65 vectors.
 
+`change-password` keeps the 14-byte header and the decrypted payload bytes, and replaces the KDF block, salt, nonce and ciphertext: the same plaintext under a new password, with pqsign's default Argon2id parameters. A key therefore keeps its format version, key ID and fingerprint. The new bytes are read back with the new password before they replace the file, and the file is compared with what was read first, so a key written meanwhile, for example by `generate --overwrite`, is not overwritten.
+
 pqsign checks the payload length for the file's format version before asking for the password. A truncated, padded or relabelled key file is therefore reported as corrupt rather than as a wrong password.
 
 A secret key file of 151 bytes is small enough to back up as text, for example with `base64`, in a QR code or a single password-manager field. A restore mistake can show up as a format error, as a corrupt file, as the key-ID mismatch error, or as `wrong password`, because the AEAD can't tell a damaged file from a wrong password. The reliable check is to sign a test file and verify the signature against the key's `.pub` file; `pqsign inspect` only confirms the file type and the format version.
 
 #### Secret key format v1 (pqsign 0.1 to 0.3)
 
-pqsign 0.1 to 0.3 wrote secret key format v1, which pqsign still reads and no longer writes. An expanded key doesn't contain the seed it was made from, so a format v1 key can't be converted; it stays in that format until its owner generates a new key. Its encrypted payload contains:
+pqsign 0.1 to 0.3 wrote secret key format v1, which pqsign still reads and never encodes. `change-password` re-encrypts its payload unchanged, so a format v1 key keeps its format and its fingerprint, and pqsign 0.1 to 0.3 can still read it. An expanded key doesn't contain the seed it was made from, so a format v1 key can't be converted; it stays in that format until its owner generates a new key. Its encrypted payload contains:
 
 ```
 ed25519_secret_key  (32 bytes)
@@ -166,16 +168,16 @@ Secret material is wiped from memory as soon as it is no longer needed:
 
 - `SecretKey` implements `ZeroizeOnDrop`, and so do the Ed25519 and ML-DSA-65 key types inside it, and `SecretSeeds` and `MlDsa65Seed`, which hold the seeds a key is generated from.
 - The byte wrappers for secret keys used while reading and writing key files wipe themselves on drop, print as `[REDACTED]`, and cannot be cloned or compared.
-- Passwords, the serialized secret key format v2 payload and the decrypted key payload are held in zeroizing buffers. Key generation seeds go straight into `SecretSeeds` and `MlDsa65Seed`, with no intermediate buffer.
+- Passwords, the serialized secret key format v2 payload and the decrypted key payload are held in zeroizing buffers. `change-password` keeps the decrypted payload for re-encryption in one, wrapped as soon as decryption returns it, and compares the read-back plaintext in another without decoding it again, so a format v1 key hands `fips204` its one unwipeable copy only once, as when signing. Key generation seeds go straight into `SecretSeeds` and `MlDsa65Seed`, with no intermediate buffer.
 - The key derived by Argon2id and the cipher's copy of it are wiped on drop.
 - Argon2id's initial hash and its 256 MiB of working memory are wiped after every key derivation.
 
 This shortens how long secrets linger; it does not guarantee that no copy remains. Rust moves values on the stack without wiping the old location, and the cryptographic libraries make internal copies; `fips204`, for example, takes the secret key bytes by value when a secret key format v1 key is loaded. A secret key format v2 key hands it only a reference to the seed. Memory may also reach swap or a core dump while pqsign runs; pqsign does not lock memory or disable core dumps.
 
-- Secret key files are written with Unix permissions `0600`, whatever the umask and also when `--overwrite` replaces an existing file, and directories `generate` creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
-- Key files and signatures are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key or leaves a truncated signature. `generate` places the public key first and the secret key last.
+- Secret key files are written with Unix permissions `0600`, whatever the umask and also when `--overwrite` or `change-password` replaces an existing file, and directories `generate` creates get `0700`. On Windows, files inherit the permissions of their directory; the default key directory lies inside the user profile.
+- Key files and signatures are written atomically: a temporary file in the same directory is synced and then renamed into place, so an interrupted write never destroys an existing key or leaves a truncated signature. This holds for `change-password` too, which replaces the file, so its owner, ACLs and extended attributes are not kept. `generate` places the public key first and the secret key last.
 - `sign` refuses a signature path that names the file being signed, its secret key or that key's `.pub` file, also through a symlink and, on Unix, a hard link, before asking for the password.
-- `sign` warns when the secret key file is accessible by other users. `sign` and `generate` warn when a `--password-file` is accessible by other users, and when other users can write to the directory that holds the secret key and so replace it; a sticky directory such as `/tmp` does not let them, so it does not count. Only that directory is checked, not its parents.
+- `sign` warns when the secret key file is accessible by other users. `sign`, `generate` and `change-password` warn when a password file is accessible by other users, and when other users can write to the directory that holds the secret key and so replace it; a sticky directory such as `/tmp` does not let them, so it does not count. Only that directory is checked, not its parents.
 
 ## File Format
 

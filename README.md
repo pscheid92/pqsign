@@ -72,17 +72,29 @@ pqsign sign document.pdf -x document.pdf.sig      # custom signature path
 
 Every signature carries a trusted comment: the signing time and the file's name, followed by your `-t` text. It is limited to 1024 bytes and may not contain control characters other than tab, or the Unicode characters that override or isolate text direction (U+202A to U+202E and U+2066 to U+2069).
 
+### Change a key's password
+
+```bash
+pqsign change-password                   # default path ~/.pqsign/default.key
+pqsign change-password -s mykey.key
+```
+
+`change-password` asks for the current password, then for the new one twice, and re-encrypts the secret key file with pqsign's default Argon2id parameters. The key, its key ID, its fingerprint and its `.pub` file stay the same, so existing signatures still verify and nobody needs the public key again. Secret keys from every pqsign release keep their format: a key written by pqsign 0.1 to 0.3 can still be read by those releases afterwards.
+
+The file is replaced rather than edited in place, so its owner, ACLs and extended attributes are not kept; on Unix it gets mode `0600`. A new password does not protect copies of the file made before the change: backups, synced copies, other hard links to it. If the secret key file and its password were exposed together, generate a new key instead.
+
 ### Non-interactive use
 
-`generate` and `sign` prompt for the secret key password on the terminal. Scripts and CI pass it explicitly instead:
+`generate`, `sign` and `change-password` prompt for the secret key password on the terminal; `change-password` asks for the current and the new password. Scripts and CI pass them explicitly instead:
 
 ```bash
 pqsign sign document.pdf --password-stdin <<< "$PQSIGN_PASSWORD"   # first line of stdin
 pqsign sign document.pdf --password-file ~/.pqsign/password        # first line of a file
 pqsign generate -s ci.key --password-file ~/.pqsign/password      # no confirmation prompt
+pqsign change-password -s ci.key --password-file old --new-password-file new
 ```
 
-The password is the first line of the input without its line ending; other whitespace is kept. `--password-stdin` is meant for pipes: on a terminal the typed password is echoed. Without a terminal and without one of these options, the command fails with an error instead of reading standard input. Keep a password file readable by you only (`chmod 600`); pqsign warns when other users can access it.
+The password is the first line of the input without its line ending; other whitespace is kept. `--password-stdin` is meant for pipes: on a terminal the typed password is echoed. Without a terminal and without one of these options, the command fails with an error instead of reading standard input. For `change-password`, `--password-stdin` and `--password-file` give the current password, and only `--new-password-file` gives the new one: standard input never carries the new password. Keep a password file readable by you only (`chmod 600`); pqsign warns when other users can access it.
 
 ### Verify a signature
 

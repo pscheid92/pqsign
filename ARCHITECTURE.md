@@ -28,9 +28,9 @@ neither. `domain` does no file writes and no terminal output, and of the crate's
 
 ### `src/main.rs`
 
-Defines the subcommands `generate`, `sign`, `verify`, `inspect`, `completions` and a hidden `version`, converts the
-parsed arguments into the `Options` of each command, and turns the result into an exit code. `completions` and
-`version` are handled here; the other four call `commands::<name>::run`.
+Defines the subcommands `generate`, `sign`, `change-password`, `verify`, `inspect`, `completions` and a hidden
+`version`, converts the parsed arguments into the `Options` of each command, and turns the result into an exit code.
+`completions` and `version` are handled here; the other five call `commands::<name>::run`.
 
 ### `src/commands/`
 
@@ -39,6 +39,9 @@ parsed arguments into the `Options` of each command, and turns the result into a
   key text goes to stdout.
 - `sign`: validates the input file, the signature path and the trusted comment, then asks for the password, signs
   and writes `<file>.pqsig`. It refuses a signature path that is the file being signed or one of the key files.
+- `change_password`: asks for the current password, then the new one, and calls
+  `format::change_secret_key_password`, which re-encrypts the secret key file. It warns about password files and
+  the key's directory, and notes afterwards when the old key file was accessible by other users.
 - `verify`: reads the public key (from a file or `-P`) and the signature, then calls `Signature::verify`. `-q` only
   suppresses output; it never changes the result.
 - `inspect`: prints what `format::inspect_file` finds. For a file that is not a pqsign file, it tries
@@ -62,8 +65,10 @@ parsed arguments into the `Options` of each command, and turns the result into a
 
 - `FileHeader`, `FileType`: the `PQSN` header every binary file starts with.
 - Public keys: one text line, `pqsign:v1:` plus base64. Secret keys: Argon2id + XChaCha20-Poly1305, parameters in
-  `Kdf`; written in secret key format v2, which stores the seeds, and read in format v1 too, which is never
-  written. Signatures: signature format v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
+  `Kdf`; encoded only in secret key format v2, which stores the seeds, and read in format v1 too.
+  `change_secret_key_password` re-encrypts either format under a new password, keeping the header and the payload
+  bytes. Reading is `parse` (every check that needs no password) and then `open`; `seal` writes everything after
+  the header for both writers. Signatures: signature format v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
 - `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature.
 - `file` (internal): every read and write of a pqsign file goes through here.
 
@@ -104,20 +109,20 @@ These hold across module boundaries. A change that breaks one needs a deliberate
   Trusted comments are rejected on write and on read if they contain a character `terminal::is_unsafe` flags, so
   they can be printed as they are.
 - **Ask for the password last.** A secret key file's header, KDF parameters and length are checked before the
-  password is requested, and `sign` checks its input file, signature path and comment before that, so mistakes
-  fail fast.
+  first password is requested, and `sign` checks its input file, signature path and comment before that, so
+  mistakes fail fast. `change-password` asks for the new password only after the current one has opened the file.
 - **Bounded reads, atomic writes.** pqsign files larger than 64 KiB are rejected, and no more than that is read.
   Writes go to a temporary file next to the destination, which is synced and then renamed into place.
   `write_key_pair` places the public key first and the secret key last, so if the last step fails the old secret
   key survives; without `--overwrite`, the public key it just placed is removed again.
-- **File permissions (Unix).** Secret keys are exactly `0600`; public keys and signatures follow the umask;
+- **File permissions (Unix).** Secret keys are exactly `0600`, also when `change-password` replaces one; public keys and signatures follow the umask;
   directories pqsign creates are at most `0700`.
 - **KDF limits.** The command line always uses `Kdf::argon2id()` (256 MiB, 3 passes). Key files asking for more than
   1024 MiB or 16 passes are rejected, and pqsign never writes a key it would refuse to read.
 - **Strict parsing, with one exception.** Signature format v2 files and secret key files in both formats reject
   trailing bytes; public keys, in text or binary form, ignore anything after the ML-DSA-65 key.
-- **Every secret key format stays readable.** pqsign writes only secret key format v2 and still reads format v1,
-  which it no longer writes. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the release that introduced
+- **Every secret key format stays readable.** pqsign encodes only secret key format v2; `change-password`
+  re-encrypts a format v1 payload unchanged, and no format v1 encoder exists. Committed fixtures written by pqsign 0.1.1, 0.3.1 and the release that introduced
   secret key format v2 keep both readable.
 - **Seed derivation is frozen.** Secret key format v2 stores only the seeds and rebuilds the keys on every load
   (FIPS 204 `KeyGen_internal`, RFC 8032), so that derivation must never change. RFC 8032 and Wycheproof
@@ -126,16 +131,18 @@ These hold across module boundaries. A change that breaks one needs a deliberate
 
 ## Side effects
 
-- **Files written:** the key pair (`~/.pqsign/default.key` and `.pub` by default), signatures (`<file>.pqsig` by
-  default), and temporary files named `.<name>.<random>.tmp` next to them while a write is in progress. The parent
+- **Files written:** the key pair (`~/.pqsign/default.key` and `.pub` by default), a secret key rewritten by
+  `change-password`, signatures (`<file>.pqsig` by default), and temporary files named `.<name>.<random>.tmp` next to them while a write is in progress. The parent
   directory is synced afterwards, on Unix and best effort.
 - **Files read:** the file being signed or verified, in full, for its BLAKE2b-512 hash; key and signature files;
-  a password file up to its first line ending.
-- **Terminal and standard input:** the password prompt; standard input only with `--password-stdin`.
+  a password file up to its first line ending, including `--new-password-file`.
+- **Terminal and standard input:** the password prompts, which for `change-password` are the current and the new
+  password; standard input only with `--password-stdin`, and never for the new password.
 - **Output:** results on stdout (the public key from `generate`, the report from `inspect`, the result of `verify`);
   status lines, warnings and errors on stderr.
 - **Resources:** every secret key encryption and decryption runs Argon2id with the key file's memory limit, 256 MiB
-  by default. Key generation and every encryption draw from `rand::rng()`.
+  by default; `change-password` runs it three times, once with the file's parameters and twice with the defaults.
+  Key generation and every encryption draw from `rand::rng()`.
 - **No network access.** Nothing in `src/` uses `std::net`, and no dependency in `Cargo.toml` is a network client.
 
 ## Testing
