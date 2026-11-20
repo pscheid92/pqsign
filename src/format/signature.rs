@@ -100,10 +100,7 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
 pub(super) fn decode(data: &[u8]) -> Result<Signature, Error> {
     let mut r = Cursor::new(data);
 
-    let header = FileHeader::read(&mut r)?;
-    if header.file_type != FileType::Signature {
-        return Err(Error::InvalidFormat("expected signature file".into()));
-    }
+    let header = FileHeader::read_expecting(&mut r, FileType::Signature)?;
 
     let version = match header.version {
         1 => Version::V1,

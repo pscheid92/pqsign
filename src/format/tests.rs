@@ -107,9 +107,7 @@ fn test_public_key_roundtrip() {
     write_public_key(&path, &pk).unwrap();
     let pk2 = read_public_key(&path).unwrap();
 
-    assert_eq!(pk.key_id, pk2.key_id);
-    assert_eq!(pk.ed25519.to_bytes(), pk2.ed25519.to_bytes());
-    assert_eq!(pk.mldsa65.clone().into_bytes(), pk2.mldsa65.clone().into_bytes());
+    assert_eq!(pk.to_parts(), pk2.to_parts());
 }
 
 #[test]
@@ -135,7 +133,7 @@ fn test_public_key_read_from_string() {
     let content = std::fs::read_to_string(&path).unwrap();
     let pk2 = read_public_key_string(&content).unwrap();
 
-    assert_eq!(pk.key_id, pk2.key_id);
+    assert_eq!(pk.key_id(), pk2.key_id());
 }
 
 #[test]
@@ -440,7 +438,7 @@ fn test_public_key_wrong_file_type_in_binary() {
 
     match read_public_key(&path) {
         Err(Error::InvalidFormat(msg)) => {
-            assert!(msg.contains("expected public key"), "got: {msg}")
+            assert!(msg.contains("expected a public key file, got a secret key file"), "got: {msg}")
         }
         Err(other) => panic!("expected InvalidFormat, got: {other}"),
         Ok(_) => panic!("expected error, got Ok"),
@@ -986,6 +984,20 @@ fn test_signature_v2_rejects_trailing_data() {
 
     let msg = invalid_format_message(read_signature(&sig_path));
     assert!(msg.contains("unexpected data"), "got: {msg}");
+}
+
+/// Every reader names both file types when it gets the wrong one.
+#[test]
+fn test_readers_name_the_file_type_they_expected_and_got() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    write_secret_key(&sk_path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
+    let blob = std::fs::read(&sk_path).unwrap();
+
+    let msg = invalid_format_message(super::public_key::decode(&blob));
+    assert_eq!(msg, "expected a public key file, got a secret key file");
+    let msg = invalid_format_message(read_signature(&sk_path));
+    assert_eq!(msg, "expected a signature file, got a secret key file");
 }
 
 /// Signature format v1 files are read as leniently as pqsign 0.1 read them: bytes after the comment are ignored, so

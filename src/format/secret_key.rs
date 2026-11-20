@@ -101,7 +101,7 @@ struct Parsed<'a> {
 /// Checks the header, the KDF parameters and the ciphertext length for the format version.
 fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     let mut r = Cursor::new(data);
-    let header = read_and_validate_header(&mut r)?;
+    let header = FileHeader::read_expecting(&mut r, FileType::SecretKey)?;
 
     let kdf = kdf::read_from(&mut r)?;
     let salt: [u8; crypto::SALT_LEN] = super::read_exact_array(&mut r)?;
@@ -164,14 +164,6 @@ fn check_unchanged(path: &Path, original: &[u8]) -> Result<(), Error> {
         return Err(Error::KeyFileChanged(path.to_path_buf()));
     }
     Ok(())
-}
-
-fn read_and_validate_header(r: &mut impl std::io::Read) -> Result<FileHeader, Error> {
-    let header = FileHeader::read(r)?;
-    if header.file_type != FileType::SecretKey {
-        return Err(Error::InvalidFormat("expected secret key file".into()));
-    }
-    Ok(header)
 }
 
 /// Unreachable while [`FileHeader::read`] rejects secret key versions other than 1 and 2.

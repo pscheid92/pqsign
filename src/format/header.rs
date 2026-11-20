@@ -68,6 +68,17 @@ impl FileHeader {
         }
     }
 
+    /// Reads a header and requires it to be of `expected` type.
+    pub(super) fn read_expecting(r: &mut impl std::io::Read, expected: FileType) -> Result<Self, Error> {
+        let header = Self::read(r)?;
+        if header.file_type != expected {
+            let msg = format!("expected a {} file, got a {} file", expected.name(), header.file_type.name());
+            let err = Error::InvalidFormat(msg);
+            return Err(err);
+        }
+        Ok(header)
+    }
+
     pub fn read(r: &mut impl std::io::Read) -> Result<Self, Error> {
         let magic: [u8; 4] = super::read_exact_array(r)?;
         if &magic != MAGIC {
