@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::errors::Error;
+use crate::errors::{Error, IoContext};
 use crate::format::SIG_FILE_EXTENSION;
 use crate::terminal::SafePath;
 
@@ -11,6 +11,18 @@ pub fn validate_file_path(path: &Path) -> Result<(), Error> {
         return Err(err);
     }
 
+    Ok(())
+}
+
+/// Checks that the file to sign or verify exists and is not a directory, before any password is asked for or key is
+/// read. Opening a directory succeeds on Unix, so without this a directory only fails once it is read, after the
+/// password prompt. Pipes and devices stay allowed, so `pqsign sign <(command)` keeps working.
+pub fn check_input_file(path: &Path) -> Result<(), Error> {
+    let metadata = std::fs::metadata(path).io_context(path)?;
+    if metadata.is_dir() {
+        let err = std::io::Error::from(std::io::ErrorKind::IsADirectory);
+        return Err(err).io_context(path);
+    }
     Ok(())
 }
 

@@ -494,3 +494,49 @@ fn test_change_password_in_a_read_only_directory_leaves_the_file() {
     assert_eq!(fs::read(&sk_path).unwrap(), before);
     assert_eq!(file_names(&key_dir), ["test.key", "test.key.pub"]);
 }
+
+// -- input that is a directory --
+
+/// A directory opens without error on Unix and only fails when read, so it must be caught before the password is
+/// used: with a wrong password, the error must still be about the directory.
+#[test]
+fn test_sign_rejects_a_directory_before_the_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    keygen(sk_path.clone(), "test-pw", false).unwrap();
+    let input = dir.path().join("a-directory");
+    fs::create_dir(&input).unwrap();
+
+    let result = sign::run(sign::Options {
+        file: input.clone(),
+        secret_key: Some(sk_path),
+        sig_file: None,
+        trusted_comment: None,
+        password: PasswordSource::Given(pw("wrong-pw")),
+        format: SignatureFormat::V2,
+    });
+
+    match result {
+        Err(err @ pqsign::errors::Error::IoPath { .. }) => assert!(err.to_string().contains("directory"), "got: {err}"),
+        Err(other) => panic!("expected the directory error, got: {other}"),
+        Ok(()) => panic!("a directory was signed"),
+    }
+    assert_eq!(file_names(dir.path()), ["a-directory", "test.key", "test.key.pub"]);
+}
+
+#[test]
+fn test_verify_rejects_a_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    keygen(sk_path.clone(), "test-pw", false).unwrap();
+    let input = dir.path().join("a-directory");
+    fs::create_dir(&input).unwrap();
+
+    let result = ver(input, dir.path().join("test.key.pub"), dir.path().join("a-directory.pqsig"));
+
+    match result {
+        Err(err @ pqsign::errors::Error::IoPath { .. }) => assert!(err.to_string().contains("directory"), "got: {err}"),
+        Err(other) => panic!("expected the directory error, got: {other}"),
+        Ok(()) => panic!("a directory verified"),
+    }
+}

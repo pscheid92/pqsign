@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use super::util::{resolve_key_path, resolve_signature_path};
+use super::util::{check_input_file, resolve_key_path, resolve_signature_path};
 use crate::domain::SignatureFormat;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::format;
 use crate::terminal::SafePath;
 
@@ -25,7 +25,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let signature_path = resolve_signature_path(sig_file, &file)?;
 
     // Validate input file before doing any key/signature I/O
-    std::fs::metadata(&file).io_context(&file)?;
+    check_input_file(&file)?;
 
     let (public_key, pk_source) = match public_key_string {
         Some(s) => (format::read_public_key_string(&s)?, "<inline>".to_string()),

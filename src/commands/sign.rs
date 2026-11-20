@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::util::{resolve_key_path, resolve_signature_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix};
+use super::util::{
+    check_input_file, resolve_key_path, resolve_signature_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix,
+};
 use crate::domain::SignatureFormat;
-use crate::errors::{Error, IoContext};
+use crate::errors::Error;
 use crate::format;
 use crate::password::PasswordSource;
 use crate::terminal::SafePath;
@@ -30,7 +32,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let signature_path = resolve_signature_path(sig_file, &file)?;
 
     // Validate the input file and the comment before asking for the password
-    std::fs::metadata(&file).io_context(&file)?;
+    check_input_file(&file)?;
     check_signature_path(&signature_path, &file, &secret_key_path)?;
     let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
     format::check_trusted_comment(&trusted)?;
