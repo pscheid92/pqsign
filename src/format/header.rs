@@ -82,12 +82,11 @@ impl FileHeader {
         Ok(FileHeader { version, file_type, key_id })
     }
 
-    pub fn write_to(&self, w: &mut impl std::io::Write) -> Result<(), Error> {
-        super::write_all(w, MAGIC)?;
-        super::write_u8(w, self.version)?;
-        super::write_u8(w, self.file_type.to_byte())?;
-        self.key_id.write_to(w)?;
-        Ok(())
+    pub fn write_to(&self, buf: &mut Vec<u8>) {
+        super::write_all(buf, MAGIC);
+        super::write_u8(buf, self.version);
+        super::write_u8(buf, self.file_type.to_byte());
+        self.key_id.write_to(buf);
     }
 }
 

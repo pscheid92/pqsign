@@ -23,7 +23,7 @@ pub use signature::{check_trusted_comment, escape_comment_field, escape_file_nam
 
 pub const SIG_FILE_EXTENSION: &str = ".pqsig";
 
-use std::io::{Read, Write};
+use std::io::Read;
 
 use crate::errors::Error;
 
@@ -53,20 +53,23 @@ fn read_vec(r: &mut impl Read, len: usize) -> Result<Vec<u8>, Error> {
     Ok(buf)
 }
 
-fn write_all(w: &mut impl Write, data: &[u8]) -> Result<(), Error> {
-    Ok(w.write_all(data)?)
+// Encoders append to a Vec, which can't fail, so they return nothing. Writing to a file is file.rs's job, and it
+// adds the path to every I/O error.
+
+fn write_all(buf: &mut Vec<u8>, data: &[u8]) {
+    buf.extend_from_slice(data);
 }
 
-fn write_u8(w: &mut impl Write, val: u8) -> Result<(), Error> {
-    write_all(w, &[val])
+fn write_u8(buf: &mut Vec<u8>, val: u8) {
+    write_all(buf, &[val]);
 }
 
-fn write_u32_le(w: &mut impl Write, val: u32) -> Result<(), Error> {
-    write_all(w, &val.to_le_bytes())
+fn write_u32_le(buf: &mut Vec<u8>, val: u32) {
+    write_all(buf, &val.to_le_bytes());
 }
 
-fn write_u64_le(w: &mut impl Write, val: u64) -> Result<(), Error> {
-    write_all(w, &val.to_le_bytes())
+fn write_u64_le(buf: &mut Vec<u8>, val: u64) {
+    write_all(buf, &val.to_le_bytes());
 }
 
 #[cfg(test)]

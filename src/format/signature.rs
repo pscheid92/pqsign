@@ -84,15 +84,15 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
         file_type: FileType::Signature,
         key_id: sig.key_id,
     }
-    .write_to(&mut buf)?;
+    .write_to(&mut buf);
     if let Version::V2 { signer } = sig.version {
-        super::write_u8(&mut buf, SUITE_ED25519_MLDSA65)?;
-        super::write_all(&mut buf, signer.as_bytes())?;
+        super::write_u8(&mut buf, SUITE_ED25519_MLDSA65);
+        super::write_all(&mut buf, signer.as_bytes());
     }
-    sig.ed25519.write_to(&mut buf)?;
-    sig.mldsa65.write_to(&mut buf)?;
-    super::write_u32_le(&mut buf, comment_bytes.len() as u32)?;
-    super::write_all(&mut buf, comment_bytes)?;
+    sig.ed25519.write_to(&mut buf);
+    sig.mldsa65.write_to(&mut buf);
+    super::write_u32_le(&mut buf, comment_bytes.len() as u32);
+    super::write_all(&mut buf, comment_bytes);
 
     Ok(buf)
 }

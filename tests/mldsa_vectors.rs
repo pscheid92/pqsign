@@ -124,7 +124,7 @@ fn test_mldsa65_signing_vectors() {
 /// `pqsign:v1:` prefix, the binary form is a 14-byte header, the 32-byte Ed25519 key and the ML-DSA-65 key.
 fn pqsign_mldsa65_public_key(seed: [u8; 32]) -> Vec<u8> {
     let seeds = SecretSeeds::from_parts(Ed25519SecretKey::from_bytes([0u8; 32]), MlDsa65Seed::from_bytes(seed));
-    let text = format::encode_public_key(&seeds.key_pair().public_key).unwrap();
+    let text = format::encode_public_key(&seeds.key_pair().public_key);
     let blob = STANDARD.decode(text.trim_end().strip_prefix("pqsign:v1:").unwrap()).unwrap();
     blob[14 + 32..].to_vec()
 }

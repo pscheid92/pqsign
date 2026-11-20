@@ -40,7 +40,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let seeds = SecretSeeds::generate();
     let public_key = format::write_key_pair(&secret_key_path, &public_key_path, &seeds, password, overwrite, &kdf)?;
 
-    let pk_content = format::encode_public_key(&public_key)?;
+    let pk_content = format::encode_public_key(&public_key);
 
     eprintln!("Secret key:  {}", SafePath(&secret_key_path));
     eprintln!("Public key:  {}", SafePath(&public_key_path));

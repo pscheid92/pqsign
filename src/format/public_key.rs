@@ -14,12 +14,12 @@ use crate::errors::Error;
 const TEXT_VERSION: u8 = 1;
 const TEXT_PREFIX: &str = "pqsign:v1:";
 
-pub(super) fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
+pub(super) fn encode(public_key: &PublicKey) -> Vec<u8> {
     let mut buf = Vec::new();
-    FileHeader::new(FileType::PublicKey, public_key.key_id).write_to(&mut buf)?;
-    Ed25519PublicKey::from_bytes(public_key.ed25519.to_bytes()).write_to(&mut buf)?;
-    MlDsa65PublicKey::from_bytes(public_key.mldsa65.clone().into_bytes()).write_to(&mut buf)?;
-    Ok(buf)
+    FileHeader::new(FileType::PublicKey, public_key.key_id).write_to(&mut buf);
+    Ed25519PublicKey::from_bytes(public_key.ed25519.to_bytes()).write_to(&mut buf);
+    MlDsa65PublicKey::from_bytes(public_key.mldsa65.clone().into_bytes()).write_to(&mut buf);
+    buf
 }
 
 pub(super) fn decode(data: &[u8]) -> Result<PublicKey, Error> {
@@ -37,14 +37,14 @@ pub(super) fn decode(data: &[u8]) -> Result<PublicKey, Error> {
 }
 
 /// The single-line text form of a public key, as written to `.pub` files, including the trailing newline.
-pub fn encode_text(public_key: &PublicKey) -> Result<String, Error> {
-    let blob = encode(public_key)?;
-    Ok(format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob)))
+pub fn encode_text(public_key: &PublicKey) -> String {
+    let blob = encode(public_key);
+    format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob))
 }
 
 /// Writes a public key atomically. An existing file is replaced.
 pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
-    let text = encode_text(public_key)?;
+    let text = encode_text(public_key);
     file::write(path, text.as_bytes(), Access::Public)
 }
 

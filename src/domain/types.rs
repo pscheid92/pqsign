@@ -23,8 +23,8 @@ macro_rules! byte_io {
                 Ok(value)
             }
 
-            pub fn write_to(&self, w: &mut impl std::io::Write) -> Result<(), Error> {
-                Ok(w.write_all(&self.0)?)
+            pub fn write_to(&self, buf: &mut Vec<u8>) {
+                buf.extend_from_slice(&self.0);
             }
         }
     };

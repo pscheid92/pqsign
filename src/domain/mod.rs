@@ -210,8 +210,8 @@ mod tests {
         assert_eq!(a.public_key.ed25519.to_bytes(), b.public_key.ed25519.to_bytes());
         assert_eq!(a.public_key.mldsa65.clone().into_bytes(), b.public_key.mldsa65.clone().into_bytes());
         assert_eq!(
-            crate::format::encode_public_key(&a.public_key).unwrap(),
-            crate::format::encode_public_key(&b.public_key).unwrap()
+            crate::format::encode_public_key(&a.public_key),
+            crate::format::encode_public_key(&b.public_key)
         );
 
         let other = seeds([1; 32], [3; 32]).key_pair();

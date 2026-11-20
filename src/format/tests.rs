@@ -12,7 +12,7 @@ use crate::errors::Error;
 #[test]
 fn test_codec_u8_roundtrip() {
     let mut buf = Vec::new();
-    super::write_u8(&mut buf, 0xAB).unwrap();
+    super::write_u8(&mut buf, 0xAB);
     let mut r = Cursor::new(buf.as_slice());
     assert_eq!(super::read_u8(&mut r).unwrap(), 0xAB);
 }
@@ -20,7 +20,7 @@ fn test_codec_u8_roundtrip() {
 #[test]
 fn test_codec_u32_le_roundtrip() {
     let mut buf = Vec::new();
-    super::write_u32_le(&mut buf, 0xDEADBEEF).unwrap();
+    super::write_u32_le(&mut buf, 0xDEADBEEF);
     let mut r = Cursor::new(buf.as_slice());
     assert_eq!(super::read_u32_le(&mut r).unwrap(), 0xDEADBEEF);
 }
@@ -28,7 +28,7 @@ fn test_codec_u32_le_roundtrip() {
 #[test]
 fn test_codec_u64_le_roundtrip() {
     let mut buf = Vec::new();
-    super::write_u64_le(&mut buf, 0x0102030405060708).unwrap();
+    super::write_u64_le(&mut buf, 0x0102030405060708);
     let mut r = Cursor::new(buf.as_slice());
     assert_eq!(super::read_u64_le(&mut r).unwrap(), 0x0102030405060708);
 }
@@ -36,7 +36,7 @@ fn test_codec_u64_le_roundtrip() {
 #[test]
 fn test_codec_array_roundtrip() {
     let mut buf = Vec::new();
-    super::write_all(&mut buf, &[1, 2, 3, 4]).unwrap();
+    super::write_all(&mut buf, &[1, 2, 3, 4]);
     let mut r = Cursor::new(buf.as_slice());
     let arr: [u8; 4] = super::read_exact_array(&mut r).unwrap();
     assert_eq!(arr, [1, 2, 3, 4]);
@@ -45,7 +45,7 @@ fn test_codec_array_roundtrip() {
 #[test]
 fn test_codec_vec_roundtrip() {
     let mut buf = Vec::new();
-    super::write_all(&mut buf, &[10, 20, 30]).unwrap();
+    super::write_all(&mut buf, &[10, 20, 30]);
     let mut r = Cursor::new(buf.as_slice());
     let v = super::read_vec(&mut r, 3).unwrap();
     assert_eq!(v, vec![10, 20, 30]);
@@ -60,7 +60,7 @@ fn test_header_roundtrip() {
     let header = FileHeader::new(FileType::SecretKey, key_id);
 
     let mut buf = Vec::new();
-    header.write_to(&mut buf).unwrap();
+    header.write_to(&mut buf);
 
     let mut r = Cursor::new(buf.as_slice());
     let h2 = FileHeader::read(&mut r).unwrap();
@@ -432,7 +432,7 @@ fn test_public_key_wrong_file_type_in_binary() {
         file_type: FileType::SecretKey,
         key_id,
     };
-    header.write_to(&mut blob).unwrap();
+    header.write_to(&mut blob);
     blob.extend_from_slice(&[0u8; 4096]);
 
     let line = format!("pqsign:v1:{}\n", STANDARD.encode(&blob));
@@ -491,7 +491,7 @@ fn test_inspect_binary_public_key_file() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("binary.pub");
     let (_, pk) = KeyPair::new().into_parts();
-    std::fs::write(&path, super::public_key::encode(&pk).unwrap()).unwrap();
+    std::fs::write(&path, super::public_key::encode(&pk)).unwrap();
 
     match inspect_file(&path).unwrap() {
         super::inspect::FileInfo::PublicKey { key_id, fingerprint } => {
@@ -509,9 +509,7 @@ fn test_inspect_binary_public_key_header_only_fails() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("binary.pub");
     let mut buf = Vec::new();
-    FileHeader::new(FileType::PublicKey, KeyId([1, 2, 3, 4, 5, 6, 7, 8]))
-        .write_to(&mut buf)
-        .unwrap();
+    FileHeader::new(FileType::PublicKey, KeyId([1, 2, 3, 4, 5, 6, 7, 8])).write_to(&mut buf);
     buf.extend_from_slice(&[0u8; 64]);
     std::fs::write(&path, &buf).unwrap();
 
@@ -634,7 +632,7 @@ const NEW_KDF: Kdf = Kdf::Argon2id {
 
 fn kdf_block(kdf: &Kdf) -> Vec<u8> {
     let mut buf = Vec::new();
-    kdf::write_to(kdf, &mut buf).unwrap();
+    kdf::write_to(kdf, &mut buf);
     buf
 }
 
@@ -1011,7 +1009,7 @@ fn test_signature_v1_ignores_trailing_data() {
 #[test]
 fn test_public_key_binary_ignores_trailing_data() {
     let (_, pk) = KeyPair::new().into_parts();
-    let mut blob = super::public_key::encode(&pk).unwrap();
+    let mut blob = super::public_key::encode(&pk);
     blob.extend_from_slice(b"extra");
 
     let decoded = super::public_key::decode(&blob).unwrap();
@@ -1025,7 +1023,7 @@ fn test_public_key_binary_ignores_trailing_data() {
 #[test]
 fn test_public_key_text_must_be_one_line() {
     let (_, pk) = KeyPair::new().into_parts();
-    let text = encode_public_key(&pk).unwrap();
+    let text = encode_public_key(&pk);
     assert_eq!(read_public_key_string(&format!("{text}  \n\n")).unwrap().fingerprint(), pk.fingerprint());
 
     let two_lines = format!("{text}second line\n");
@@ -1127,7 +1125,7 @@ fn test_public_key_text_and_header_versions_must_match() {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     let (_, pk) = KeyPair::new().into_parts();
-    let mut blob = super::public_key::encode(&pk).unwrap();
+    let mut blob = super::public_key::encode(&pk);
     read_public_key_string(&format!("pqsign:v1:{}", STANDARD.encode(&blob))).unwrap();
 
     blob[4] = 2;

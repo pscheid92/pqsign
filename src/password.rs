@@ -44,7 +44,7 @@ impl PasswordSource {
     pub fn read_existing_as(self, prompt: &str) -> Result<Zeroizing<String>, Error> {
         let password = match self {
             PasswordSource::Prompt => prompt_password(prompt)?,
-            PasswordSource::Stdin => read_first_line(raw_stdin()?)?,
+            PasswordSource::Stdin => to_password(read_first_line(raw_stdin()?).map_err(stdin_error)?)?,
             PasswordSource::File(path) => read_first_line_from_file(&path)?,
             PasswordSource::Given(password) => password,
         };
@@ -107,13 +107,13 @@ fn raw_stdin() -> Result<Box<dyn Read>, Error> {
     #[cfg(unix)]
     {
         use std::os::fd::AsFd;
-        let fd = io::stdin().as_fd().try_clone_to_owned()?;
+        let fd = io::stdin().as_fd().try_clone_to_owned().map_err(stdin_error)?;
         Ok(Box::new(File::from(fd)))
     }
     #[cfg(windows)]
     {
         use std::os::windows::io::AsHandle;
-        let handle = io::stdin().as_handle().try_clone_to_owned()?;
+        let handle = io::stdin().as_handle().try_clone_to_owned().map_err(stdin_error)?;
         Ok(Box::new(File::from(handle)))
     }
     #[cfg(not(any(unix, windows)))]
@@ -122,9 +122,17 @@ fn raw_stdin() -> Result<Box<dyn Read>, Error> {
     }
 }
 
+/// Standard input has no path, so its I/O errors name it instead.
+fn stdin_error(source: io::Error) -> Error {
+    Error::IoPath {
+        context: "standard input".into(),
+        source,
+    }
+}
+
 fn read_first_line_from_file(path: &Path) -> Result<Zeroizing<String>, Error> {
     let file = File::open(path).io_context(path)?;
-    read_first_line(file)
+    to_password(read_first_line(file).io_context(path)?)
 }
 
 /// Reads one line without its line ending. Other whitespace is preserved.
@@ -135,7 +143,7 @@ fn read_first_line_from_file(path: &Path) -> Result<Zeroizing<String>, Error> {
     clippy::unbuffered_bytes,
     reason = "bounded to MAX_PASSWORD_LEN + 1 reads; a BufReader would keep an un-zeroized copy of the password"
 )]
-fn read_first_line(reader: impl Read) -> Result<Zeroizing<String>, Error> {
+fn read_first_line(reader: impl Read) -> io::Result<Zeroizing<Vec<u8>>> {
     let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_PASSWORD_LEN + 1));
     for byte in reader.bytes().take(MAX_PASSWORD_LEN + 1) {
         match byte? {
@@ -144,8 +152,12 @@ fn read_first_line(reader: impl Read) -> Result<Zeroizing<String>, Error> {
         }
     }
     bytes.pop_if(|byte| *byte == b'\r');
-    require_max_len(bytes.len())?;
+    Ok(bytes)
+}
 
+/// Checks a line read by [`read_first_line`] and turns it into a password.
+fn to_password(bytes: Zeroizing<Vec<u8>>) -> Result<Zeroizing<String>, Error> {
+    require_max_len(bytes.len())?;
     let text = std::str::from_utf8(&bytes).map_err(|_| Error::PasswordNotUtf8)?;
     Ok(Zeroizing::new(text.to_owned()))
 }
@@ -155,7 +167,7 @@ mod tests {
     use super::*;
 
     fn first_line(input: &[u8]) -> Result<Zeroizing<String>, Error> {
-        read_first_line(input)
+        to_password(read_first_line(input).unwrap())
     }
 
     fn given(password: &str) -> PasswordSource {

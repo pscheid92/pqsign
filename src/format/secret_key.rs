@@ -234,11 +234,11 @@ fn seal(header: &FileHeader, plaintext: &[u8], password: &Zeroizing<String>, kdf
     let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf, &salt, &nonce)?;
 
     let mut buf = Vec::new();
-    header.write_to(&mut buf)?;
-    kdf::write_to(kdf, &mut buf)?;
-    super::write_all(&mut buf, &salt)?;
-    super::write_all(&mut buf, &nonce)?;
-    super::write_all(&mut buf, &encrypted)?;
+    header.write_to(&mut buf);
+    kdf::write_to(kdf, &mut buf);
+    super::write_all(&mut buf, &salt);
+    super::write_all(&mut buf, &nonce);
+    super::write_all(&mut buf, &encrypted);
 
     Ok(buf)
 }
