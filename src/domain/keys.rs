@@ -46,7 +46,8 @@ pub struct SecretSeeds {
 }
 
 impl SecretSeeds {
-    /// Fresh seeds from the operating system's random generator, read straight into the wiped byte types.
+    /// Fresh seeds from `rand::rng()`, a cryptographically secure generator seeded from the operating system, read
+    /// straight into the wiped byte types.
     pub fn generate() -> Self {
         let mut rng = rand::rng();
         let mut ed25519 = Ed25519SecretKey([0u8; Ed25519SecretKey::LEN]);
