@@ -1,0 +1,13 @@
+Third-party notices for pqsign
+
+pqsign is distributed under the MIT licence (see LICENSE). Its binaries include the Rust crates below, whose
+licences ask for these notices to be shipped with the binary. Each licence text names the crates that use it.
+{{#each licenses}}
+
+================================================================================
+{{{name}}} ({{{id}}})
+Used by: {{#each used_by}}{{{crate.name}}} {{{crate.version}}}{{#unless @last}}, {{/unless}}{{/each}}
+================================================================================
+
+{{{text}}}
+{{/each}}

@@ -1,0 +1,29 @@
+# cargo-deny configuration, checked in CI (`cargo deny check licenses sources`). Advisories are checked by
+# `cargo audit` in the same workflow.
+
+[graph]
+# The platforms pqsign is released for, so a dependency used on only one of them is still checked.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+[licenses]
+# Permissive licences only, all compatible with distributing pqsign's binaries under the MIT licence. A dependency
+# under any other licence fails CI until someone decides about it.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+]
+confidence-threshold = 0.9
+
+[sources]
+# Every crate comes from crates.io: no other registry, no git dependency.
+unknown-registry = "deny"
+unknown-git = "deny"

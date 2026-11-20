@@ -17,7 +17,7 @@
         "/^docs/install\\.md$/"
       ],
       "matchStrings": [
-        "(?<depName>cargo-(?:auditable|cyclonedx))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "(?<depName>cargo-(?:auditable|cyclonedx|about))@(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
       "datasourceTemplate": "crate",
       "versioningTemplate": "semver"
