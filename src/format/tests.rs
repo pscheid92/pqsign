@@ -478,7 +478,8 @@ fn test_read_public_key_text_on_secret_key_binary_fails() {
     let sk_path = dir.path().join("test.key");
     write_secret_key(&sk_path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
 
-    assert!(read_public_key(&sk_path).is_err());
+    let result = read_public_key(&sk_path);
+    assert!(matches!(result, Err(Error::InvalidFormat(_))), "got: {:?}", result.err());
 }
 
 // -- Inspect: binary public key path --
@@ -987,6 +988,53 @@ fn test_signature_v2_rejects_trailing_data() {
 
     let msg = invalid_format_message(read_signature(&sig_path));
     assert!(msg.contains("unexpected data"), "got: {msg}");
+}
+
+/// Signature format v1 files are read as leniently as pqsign 0.1 read them: bytes after the comment are ignored, so
+/// signatures pqsign 0.1 accepted keep verifying. ARCHITECTURE.md states this exception.
+#[test]
+fn test_signature_v1_ignores_trailing_data() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v1");
+    let pk = read_public_key(&fixture.join("signer.pub")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let sig_path = dir.path().join("message.txt.pqsig");
+    let mut data = std::fs::read(fixture.join("message.txt.pqsig")).unwrap();
+    data.extend_from_slice(b"extra");
+    std::fs::write(&sig_path, &data).unwrap();
+
+    let sig = read_signature(&sig_path).unwrap();
+
+    sig.verify(&pk, &fixture.join("message.txt")).unwrap();
+}
+
+/// The binary data of a public key may continue after the ML-DSA-65 key; the key read is the same.
+#[test]
+fn test_public_key_binary_ignores_trailing_data() {
+    let (_, pk) = KeyPair::new().into_parts();
+    let mut blob = super::public_key::encode(&pk).unwrap();
+    blob.extend_from_slice(b"extra");
+
+    let decoded = super::public_key::decode(&blob).unwrap();
+
+    assert_eq!(decoded.key_id(), pk.key_id());
+    assert_eq!(decoded.fingerprint(), pk.fingerprint());
+}
+
+/// The text form of a public key is one line. A second line is rejected, from a file and inline, although trailing
+/// whitespace, such as the line ending `encode_text` writes, is allowed.
+#[test]
+fn test_public_key_text_must_be_one_line() {
+    let (_, pk) = KeyPair::new().into_parts();
+    let text = encode_public_key(&pk).unwrap();
+    assert_eq!(read_public_key_string(&format!("{text}  \n\n")).unwrap().fingerprint(), pk.fingerprint());
+
+    let two_lines = format!("{text}second line\n");
+    assert!(read_public_key_string(&two_lines).is_err(), "a second line was accepted inline");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("two-lines.pub");
+    std::fs::write(&path, &two_lines).unwrap();
+    assert!(read_public_key(&path).is_err(), "a second line was accepted from a file");
 }
 
 /// Changing the version byte must never turn a signature of one format into a valid one of the other.

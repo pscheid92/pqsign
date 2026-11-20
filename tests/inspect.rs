@@ -101,7 +101,11 @@ fn test_inspect_signature_file() {
 #[test]
 fn test_inspect_nonexistent_file_fails() {
     let dir = tempfile::tempdir().unwrap();
-    assert!(format::inspect_file(&dir.path().join("nope.key")).is_err());
+    let result = format::inspect_file(&dir.path().join("nope.key")).err();
+    assert!(
+        matches!(&result, Some(pqsign::errors::Error::IoPath { source, .. }) if source.kind() == std::io::ErrorKind::NotFound),
+        "got: {result:?}"
+    );
 }
 
 #[test]
@@ -109,5 +113,6 @@ fn test_inspect_corrupt_binary_fails() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("corrupt.key");
     fs::write(&path, b"not a pqsign file at all").unwrap();
-    assert!(format::inspect_file(&path).is_err());
+    let result = format::inspect_file(&path).err();
+    assert!(matches!(result, Some(pqsign::errors::Error::InvalidFormat(_))), "got: {result:?}");
 }
