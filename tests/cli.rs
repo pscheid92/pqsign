@@ -7,6 +7,15 @@ use zeroize::Zeroizing;
 use pqsign::domain::SecretSeeds;
 use pqsign::format::{self, Kdf};
 
+/// Skips a test whose precondition doesn't hold here, such as a controlling terminal being available. CI sets
+/// `PQSIGN_REQUIRE_ALL_TESTS`, so there a skip fails instead, and a runner change can't quietly turn the test off.
+#[cfg(unix)]
+fn skip(reason: &str) {
+    let required = std::env::var_os("PQSIGN_REQUIRE_ALL_TESTS").is_some();
+    assert!(!required, "{reason}, but PQSIGN_REQUIRE_ALL_TESTS is set, so this test must run");
+    eprintln!("skipped: {reason}");
+}
+
 fn cmd() -> Command {
     Command::cargo_bin("pqsign").unwrap()
 }
@@ -580,7 +589,7 @@ fn test_cli_password_file_missing_fails() {
 #[test]
 fn test_cli_sign_without_terminal_requires_password_option() {
     if fs::File::open("/dev/tty").is_ok() {
-        eprintln!("skipped: a controlling terminal is available");
+        skip("a controlling terminal is available");
         return;
     }
 
@@ -1652,7 +1661,7 @@ fn test_cli_change_password_rejects_an_empty_new_password_file() {
 #[test]
 fn test_cli_change_password_without_terminal_requires_new_password_file() {
     if fs::File::open("/dev/tty").is_ok() {
-        eprintln!("skipped: a controlling terminal is available");
+        skip("a controlling terminal is available");
         return;
     }
 

@@ -18,6 +18,15 @@ const TEST_KDF: Kdf = Kdf::Argon2id {
     ops_limit: 1,
 };
 
+/// Skips a test whose precondition doesn't hold here, such as a controlling terminal being available. CI sets
+/// `PQSIGN_REQUIRE_ALL_TESTS`, so there a skip fails instead, and a runner change can't quietly turn the test off.
+#[cfg(unix)]
+fn skip(reason: &str) {
+    let required = std::env::var_os("PQSIGN_REQUIRE_ALL_TESTS").is_some();
+    assert!(!required, "{reason}, but PQSIGN_REQUIRE_ALL_TESTS is set, so this test must run");
+    eprintln!("skipped: {reason}");
+}
+
 fn keygen(secret_key: PathBuf, password: &str, overwrite: bool) -> Result<(), pqsign::errors::Error> {
     generate::run(generate::Options {
         secret_key: Some(secret_key),
@@ -98,7 +107,11 @@ fn test_verify_tampered_file_fails() {
     sig(file_path.clone(), sk_path, Some(sig_path.clone()), None).unwrap();
 
     fs::write(&file_path, b"tampered content").unwrap();
-    assert!(ver(file_path, pk_path, sig_path).is_err());
+    let result = ver(file_path, pk_path, sig_path);
+    assert!(
+        matches!(result, Err(pqsign::errors::Error::SignatureVerificationFailed)),
+        "got: {result:?}"
+    );
 }
 
 #[test]
@@ -116,7 +129,8 @@ fn test_verify_wrong_key_fails() {
     keygen(sk2_path, "test-pw", false).unwrap();
     sig(file_path.clone(), sk1_path, Some(sig_path.clone()), None).unwrap();
 
-    assert!(ver(file_path, pk2_path, sig_path).is_err());
+    let result = ver(file_path, pk2_path, sig_path);
+    assert!(matches!(result, Err(pqsign::errors::Error::SignerMismatch { .. })), "got: {result:?}");
 }
 
 // -- generate edge cases --
@@ -161,8 +175,11 @@ fn test_sign_nonexistent_file_fails() {
     let sk_path = dir.path().join("test.key");
     keygen(sk_path.clone(), "test-pw", false).unwrap();
 
-    let err = sig(dir.path().join("does-not-exist.txt"), sk_path, None, None);
-    assert!(err.is_err());
+    let result = sig(dir.path().join("does-not-exist.txt"), sk_path, None, None);
+    assert!(
+        matches!(&result, Err(pqsign::errors::Error::IoPath { source, .. }) if source.kind() == std::io::ErrorKind::NotFound),
+        "got: {result:?}"
+    );
 }
 
 #[test]
@@ -192,8 +209,11 @@ fn test_verify_nonexistent_signature_fails() {
     fs::write(&file_path, b"content").unwrap();
     keygen(sk_path, "test-pw", false).unwrap();
 
-    let err = ver(file_path, pk_path, dir.path().join("no-such.pqsig"));
-    assert!(err.is_err());
+    let result = ver(file_path, pk_path, dir.path().join("no-such.pqsig"));
+    assert!(
+        matches!(&result, Err(pqsign::errors::Error::IoPath { source, .. }) if source.kind() == std::io::ErrorKind::NotFound),
+        "got: {result:?}"
+    );
 }
 
 #[test]
@@ -207,8 +227,11 @@ fn test_verify_nonexistent_pubkey_fails() {
     let s = sk.sign(&file_path, "test").unwrap();
     format::write_signature(&sig_path, &s).unwrap();
 
-    let err = ver(file_path, dir.path().join("no-such.key.pub"), sig_path);
-    assert!(err.is_err());
+    let result = ver(file_path, dir.path().join("no-such.key.pub"), sig_path);
+    assert!(
+        matches!(&result, Err(pqsign::errors::Error::IoPath { source, .. }) if source.kind() == std::io::ErrorKind::NotFound),
+        "got: {result:?}"
+    );
 }
 
 // -- secret key file permissions --
@@ -483,7 +506,7 @@ fn test_change_password_in_a_read_only_directory_leaves_the_file() {
     let before = fs::read(&sk_path).unwrap();
     fs::set_permissions(&key_dir, fs::Permissions::from_mode(0o500)).unwrap();
     if fs::write(key_dir.join("probe"), b"").is_ok() {
-        eprintln!("skipped: the directory mode is ignored, as for root");
+        skip("the directory mode is ignored, as for root");
         return;
     }
 
