@@ -27,12 +27,6 @@ pub fn check_trusted_comment(comment: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Makes text safe to embed as one field of a trusted comment: forbidden characters, the tab that separates
-/// fields, and the backslash that starts an escape are written as Rust-style escapes such as `\t` or `\u{202e}`.
-pub fn escape_comment_field(text: &str) -> String {
-    escape_field(text.as_bytes())
-}
-
 /// Writes a signature atomically. An existing file is replaced; a missing directory is an error.
 pub fn write(path: &Path, sig: &Signature) -> Result<(), Error> {
     let buf = encode(sig)?;
@@ -44,9 +38,10 @@ pub fn read(path: &Path) -> Result<Signature, Error> {
     decode(&data)
 }
 
-/// Makes a file name safe to embed as a trusted comment field. Valid UTF-8 is escaped like
-/// [`escape_comment_field`]; bytes that are not valid UTF-8 are written as `\xNN`, so different names stay
-/// different instead of all turning into U+FFFD.
+/// Makes a file name safe to embed as one field of a trusted comment: forbidden characters, the tab that separates
+/// fields, and the backslash that starts an escape are written as Rust-style escapes such as `\t` or `\u{202e}`.
+/// Bytes that are not valid UTF-8 are written as `\xNN`, so different names stay different instead of all turning
+/// into U+FFFD.
 pub fn escape_file_name(name: &OsStr) -> String {
     escape_field(name.as_encoded_bytes())
 }

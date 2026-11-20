@@ -8,7 +8,7 @@ mod public_key;
 mod secret_key;
 mod signature;
 
-pub use header::{FileHeader, FileType};
+use header::{FileHeader, FileType};
 pub use inspect::{FileInfo, inspect_file};
 pub use kdf::Kdf;
 pub use key_pair::write_key_pair;
@@ -19,7 +19,7 @@ pub use secret_key::{
     PasswordChanged, change_password as change_secret_key_password, read as read_secret_key, read_with as read_secret_key_with,
     write as write_secret_key,
 };
-pub use signature::{check_trusted_comment, escape_comment_field, escape_file_name, read as read_signature, write as write_signature};
+pub use signature::{check_trusted_comment, escape_file_name, read as read_signature, write as write_signature};
 
 pub const SIG_FILE_EXTENSION: &str = ".pqsig";
 

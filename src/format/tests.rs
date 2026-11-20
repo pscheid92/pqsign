@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io::Cursor;
 
 use fips204::traits::SerDes;
@@ -853,17 +854,17 @@ fn test_trusted_comment_forbidden_characters() {
 }
 
 #[test]
-fn test_escape_comment_field() {
-    assert_eq!(escape_comment_field("app.tar.gz"), "app.tar.gz");
-    assert_eq!(escape_comment_field("Bericht für März.pdf"), "Bericht für März.pdf");
-    assert_eq!(escape_comment_field("a\tfile:b"), "a\\tfile:b");
-    assert_eq!(escape_comment_field("line\nbreak"), "line\\nbreak");
-    assert_eq!(escape_comment_field("invoice\u{202e}fdp.exe"), "invoice\\u{202e}fdp.exe");
-    assert_eq!(escape_comment_field("back\\slash"), "back\\\\slash");
-    assert_eq!(escape_comment_field("\x1b[2K"), "\\u{1b}[2K");
+fn test_escape_file_name_escapes_comment_field_characters() {
+    assert_eq!(escape_file_name(OsStr::new("app.tar.gz")), "app.tar.gz");
+    assert_eq!(escape_file_name(OsStr::new("Bericht für März.pdf")), "Bericht für März.pdf");
+    assert_eq!(escape_file_name(OsStr::new("a\tfile:b")), "a\\tfile:b");
+    assert_eq!(escape_file_name(OsStr::new("line\nbreak")), "line\\nbreak");
+    assert_eq!(escape_file_name(OsStr::new("invoice\u{202e}fdp.exe")), "invoice\\u{202e}fdp.exe");
+    assert_eq!(escape_file_name(OsStr::new("back\\slash")), "back\\\\slash");
+    assert_eq!(escape_file_name(OsStr::new("\x1b[2K")), "\\u{1b}[2K");
 
     for name in ["a\tb\nc\u{202e}d\x1b", "plain"] {
-        check_trusted_comment(&escape_comment_field(name)).unwrap();
+        check_trusted_comment(&escape_file_name(OsStr::new(name))).unwrap();
     }
 }
 
@@ -1108,8 +1109,6 @@ fn test_header_versions_are_per_file_type() {
 
 #[test]
 fn test_escape_file_name_keeps_valid_names() {
-    use std::ffi::OsStr;
-
     assert_eq!(escape_file_name(OsStr::new("Bericht für März.pdf")), "Bericht für März.pdf");
     assert_eq!(escape_file_name(OsStr::new("a\tb\\c")), "a\\tb\\\\c");
 }
@@ -1117,7 +1116,6 @@ fn test_escape_file_name_keeps_valid_names() {
 #[cfg(unix)]
 #[test]
 fn test_escape_file_name_keeps_invalid_bytes_distinct() {
-    use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
 
     let name = |bytes: &[u8]| escape_file_name(OsStr::from_bytes(bytes));

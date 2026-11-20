@@ -272,7 +272,7 @@ impl Cli {
                 quiet,
             }),
 
-            Command::Inspect { file } => inspect::run(file),
+            Command::Inspect { file } => inspect::run(&file),
 
             Command::Completions { shell } => {
                 clap_complete::generate(shell, &mut Cli::command(), "pqsign", &mut std::io::stdout());

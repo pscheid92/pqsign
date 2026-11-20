@@ -23,7 +23,7 @@ const V2_PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65Seed::LEN;
 /// Argon2id. Nothing encodes format v1 any more; [`change_password`] re-encrypts an existing format v1 payload
 /// unchanged.
 pub fn write(path: &Path, seeds: &SecretSeeds, password: Zeroizing<String>, kdf: &Kdf) -> Result<(), Error> {
-    let data = encode_v2(seeds, &password, kdf)?;
+    let (data, _) = encode_v2(seeds, &password, kdf)?;
     file::write(path, &data, Access::Private)
 }
 
@@ -199,7 +199,7 @@ fn check_ciphertext_len(version: u8, len: usize) -> Result<(), Error> {
 /// The header's key ID is derived from the seeds being encoded, never passed in, so a file can't carry a key ID
 /// that doesn't match its keys. The KDF parameters are checked like those read from a key file, so pqsign never
 /// writes a key it would refuse to read.
-pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: &Kdf) -> Result<Vec<u8>, Error> {
+pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: &Kdf) -> Result<(Vec<u8>, PublicKey), Error> {
     kdf.check()?;
 
     // Exact capacity: the buffer never reallocates, so no unwiped copy of the seeds is left on the heap.
@@ -207,8 +207,9 @@ pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: 
     payload.extend_from_slice(seeds.ed25519().as_bytes());
     payload.extend_from_slice(seeds.mldsa65().as_bytes());
 
-    let key_id = seeds.key_pair().public_key.key_id();
-    seal(&FileHeader::new(FileType::SecretKey, key_id), &payload, password, kdf)
+    let (_, public_key) = seeds.key_pair().into_parts();
+    let data = seal(&FileHeader::new(FileType::SecretKey, public_key.key_id()), &payload, password, kdf)?;
+    Ok((data, public_key))
 }
 
 /// Writes `header`, then the sealed part of the file: the KDF block, a fresh salt and nonce, and `plaintext`
@@ -298,7 +299,7 @@ mod tests {
 
     /// The original file, what it opens to, and a correct rewrite of it under "new".
     fn rewrite() -> (Vec<u8>, Zeroizing<Vec<u8>>, Vec<u8>) {
-        let original = encode_v2(&SecretSeeds::generate(), &pw("old"), &KDF).unwrap();
+        let (original, _) = encode_v2(&SecretSeeds::generate(), &pw("old"), &KDF).unwrap();
         let parsed = parse(&original).unwrap();
         let plaintext = decrypt(&parsed, &pw("old")).unwrap();
         let rewritten = seal(&parsed.header, &plaintext, &pw("new"), &KDF).unwrap();

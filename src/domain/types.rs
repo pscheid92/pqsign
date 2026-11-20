@@ -2,7 +2,6 @@ use std::fmt;
 
 use ed25519_dalek as ed25519;
 use fips204::ml_dsa_65;
-use rand::Rng;
 
 use crate::errors::Error;
 
@@ -97,15 +96,6 @@ secret_byte_type!(MlDsa65Seed, 32);
 pub struct KeyId(pub(crate) [u8; 8]);
 
 byte_io!(KeyId, 8);
-
-impl KeyId {
-    /// A random key ID, as pqsign 0.1 gave new keys. Keys now take their ID from their fingerprint.
-    pub fn random(rng: &mut impl Rng) -> KeyId {
-        let mut buf = [0u8; Self::LEN];
-        rng.fill_bytes(&mut buf);
-        KeyId(buf)
-    }
-}
 
 impl fmt::Display for KeyId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
