@@ -29,13 +29,18 @@ const TEST_KDF: Kdf = Kdf::Argon2id {
 /// Writes a key pair with the password "test-pw", like `generate` but with [`TEST_KDF`]. Tests of `generate`
 /// itself run the binary.
 fn generate_key(sk: &std::path::Path) {
+    generate_key_with_password(sk, "test-pw");
+}
+
+/// [`generate_key`] with a password of the test's choice.
+fn generate_key_with_password(sk: &std::path::Path, password: &str) {
     let mut pk = sk.as_os_str().to_owned();
     pk.push(".pub");
     format::write_key_pair(
         sk,
         pk.as_ref(),
         &SecretSeeds::generate(),
-        Zeroizing::new("test-pw".into()),
+        Zeroizing::new(password.into()),
         false,
         &TEST_KDF,
     )
@@ -433,7 +438,12 @@ fn test_cli_inspect_fallback_to_pqsig() {
 }
 
 // -- password sources --
+//
+// How the binary reads a password: the key is written with a known password and small Argon2id parameters, and
+// `sign` reads that password from a file or standard input. `generate` reads passwords through the same code
+// (`PasswordSource::read_new` calls `read_existing_as`), and `test_cli_generate` runs it end to end.
 
+/// `generate` with its password on standard input. Only for passwords `generate` rejects before it derives a key.
 fn generate_key_with_stdin_password(sk: &std::path::Path, password: &str) -> assert_cmd::assert::Assert {
     cmd()
         .args(["generate", "-s", sk.to_str().unwrap(), "--password-stdin"])
@@ -456,6 +466,7 @@ fn sign_with_stdin_password(file: &std::path::Path, sk: &std::path::Path, sig: &
         .assert()
 }
 
+/// A password file gives its first line, without the line ending; the rest of the file is ignored.
 #[test]
 fn test_cli_password_file_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
@@ -467,11 +478,7 @@ fn test_cli_password_file_roundtrip() {
 
     fs::write(&pw_file, "file-pw\r\nsecond line is ignored\n").unwrap();
     fs::write(&file, b"data").unwrap();
-
-    cmd()
-        .args(["generate", "-s", sk.to_str().unwrap(), "--password-file", pw_file.to_str().unwrap()])
-        .assert()
-        .success();
+    generate_key_with_password(&sk, "file-pw");
 
     cmd()
         .args([
@@ -491,9 +498,6 @@ fn test_cli_password_file_roundtrip() {
         .args(["verify", file.to_str().unwrap(), "-p", pk.to_str().unwrap(), "-x", sig.to_str().unwrap()])
         .assert()
         .success();
-
-    // The key was encrypted with exactly "file-pw": neither the line ending nor the second line were part of it.
-    sign_with_stdin_password(&file, &sk, &sig, "file-pw\n").success();
 }
 
 #[test]
@@ -503,8 +507,7 @@ fn test_cli_password_stdin_preserves_trailing_whitespace() {
     let file = dir.path().join("msg.txt");
     let sig = dir.path().join("msg.txt.pqsig");
     fs::write(&file, b"data").unwrap();
-
-    generate_key_with_stdin_password(&sk, "pw \n").success();
+    generate_key_with_password(&sk, "pw ");
 
     sign_with_stdin_password(&file, &sk, &sig, "pw\n")
         .failure()
@@ -519,9 +522,9 @@ fn test_cli_password_stdin_reads_first_line_only() {
     let file = dir.path().join("msg.txt");
     let sig = dir.path().join("msg.txt.pqsig");
     fs::write(&file, b"data").unwrap();
+    generate_key_with_password(&sk, "pw");
 
-    generate_key_with_stdin_password(&sk, "pw\nsecond line\n").success();
-    sign_with_stdin_password(&file, &sk, &sig, "pw\n").success();
+    sign_with_stdin_password(&file, &sk, &sig, "pw\nsecond line\n").success();
 }
 
 #[test]
@@ -531,8 +534,9 @@ fn test_cli_password_stdin_without_line_ending() {
     let file = dir.path().join("msg.txt");
     let sig = dir.path().join("msg.txt.pqsig");
     fs::write(&file, b"data").unwrap();
+    generate_key_with_password(&sk, "pw");
 
-    generate_key_with_stdin_password(&sk, "pw").success();
+    sign_with_stdin_password(&file, &sk, &sig, "pw").success();
     sign_with_stdin_password(&file, &sk, &sig, "pw\r\n").success();
 }
 
@@ -1549,8 +1553,9 @@ fn password_file(dir: &std::path::Path, name: &str, password: &str) -> std::path
     path
 }
 
-/// The only CLI test that writes and reads back at the default Argon2id parameters: two derivations at
-/// 256 MiB, and a third for the `sign` afterwards.
+/// The CLI test that checks a password change in full. Like every successful `change-password` run, it costs two
+/// Argon2id derivations at the default 256 MiB, and the `sign` afterwards a third. The key starts with mode 0600, so
+/// no note about other users is printed.
 #[test]
 fn test_cli_change_password_round_trip() {
     let dir = tempfile::tempdir().unwrap();
@@ -1569,7 +1574,11 @@ fn test_cli_change_password_round_trip() {
         .assert()
         .success()
         .stdout("")
-        .stderr(predicates::str::contains("(format v2)").and(predicates::str::contains("KDF:         Argon2id, 256 MiB, 3 passes")));
+        .stderr(
+            predicates::str::contains("(format v2)")
+                .and(predicates::str::contains("KDF:         Argon2id, 256 MiB, 3 passes"))
+                .and(predicates::str::contains("note:").not()),
+        );
 
     assert_eq!(fs::read(&pk).unwrap(), public_key);
     #[cfg(unix)]
@@ -1728,17 +1737,16 @@ fn test_cli_change_password_notes_a_key_that_was_accessible_by_others() {
     };
     generate_key(&sk);
 
-    change(&old, &new).stderr(predicates::str::contains("note:").not());
-
+    // A key with mode 0600 gets no note; test_cli_change_password_round_trip checks that.
     fs::set_permissions(&sk, fs::Permissions::from_mode(0o644)).unwrap();
     let note = format!("note: {} was accessible by other users (mode 0644)", sk.display());
-    change(&new, &old).stderr(predicates::str::contains(note));
+    change(&old, &new).stderr(predicates::str::contains(note));
     assert_eq!(fs::metadata(&sk).unwrap().permissions().mode() & 0o777, 0o600);
 }
 
 // -- stack size --
 
-/// An unoptimized `sign` needs more stack than the 1 MiB a Windows main thread gets, so pqsign runs on a thread with
+/// A debug `sign` needs about as much stack as the 1 MiB a Windows main thread gets, so pqsign runs on a thread with
 /// its own, larger stack. Lowering the main thread's stack limit with `ulimit -s` checks that, on platforms where a
 /// test can set it.
 #[cfg(unix)]
@@ -1752,7 +1760,8 @@ fn test_cli_sign_does_not_depend_on_main_thread_stack() {
     fs::write(&file, b"small stack").unwrap();
     generate_key(&sk);
 
-    // 512 KiB: `sign` on the main thread of a debug build aborts with a stack overflow below about 1 MiB.
+    // 512 KiB: `sign` on the main thread of a debug build aborts with a stack overflow below about 768 KiB, also with
+    // `fips204` optimized as Cargo.toml sets it.
     Command::new("sh")
         .args(["-c", r#"ulimit -s 512 && exec "$@""#, "sh"])
         .arg(assert_cmd::cargo::cargo_bin("pqsign"))

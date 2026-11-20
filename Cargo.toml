@@ -38,6 +38,18 @@ serde_json = "1"
 [profile.dev.package.argon2]
 opt-level = 3
 
+# ML-DSA-65 and its SHAKE hashing dominate the test suite when unoptimized (the Wycheproof vectors take 4 s instead of
+# 1 s). Run on the main thread, `sign` still overflows a 512 KiB stack, so the stack guard test in tests/cli.rs keeps
+# working.
+[profile.dev.package.fips204]
+opt-level = 3
+
+[profile.dev.package.sha3]
+opt-level = 3
+
+[profile.dev.package.keccak]
+opt-level = 3
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

@@ -37,9 +37,10 @@ turns the result into an exit code. `completions` and `version` are handled here
 `commands::<name>::run`.
 
 `main` does all of this on a thread with an 8 MiB stack and waits for it. ML-DSA-65 in `fips204` keeps large values on
-the stack, and an unoptimized `sign` does not fit in the 1 MiB a Windows main thread gets. The thread is named `main`,
-and a panic on it is raised again on the real main thread, so output and exit codes are the same as without it. If
-the thread can't be created, `main` runs the command on the real main thread instead.
+the stack, and a debug build of `sign` comes close to the 1 MiB a Windows main thread gets; an unoptimized one
+overflowed it. The thread is named `main`, and a panic on it is raised again on the real main thread, so output and
+exit codes are the same as without it. If the thread can't be created, `main` runs the command on the real main
+thread instead.
 
 ### `src/commands/`
 
