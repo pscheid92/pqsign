@@ -4,8 +4,8 @@ use std::path::Path;
 
 use super::file::{self, Access};
 use super::{FileHeader, FileType};
-use crate::domain::signature::{SUITE_ED25519_MLDSA65, Version};
 use crate::domain::*;
+use crate::domain::{SUITE_ED25519_MLDSA65, Version};
 use crate::errors::Error;
 use crate::terminal;
 
@@ -27,20 +27,6 @@ pub fn check_trusted_comment(comment: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Makes text safe to embed as one field of a trusted comment: forbidden characters, the tab that separates
-/// fields, and the backslash that starts an escape are written as Rust-style escapes such as `\t` or `\u{202e}`.
-pub fn escape_comment_field(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        if matches!(c, '\t' | '\\') || terminal::is_unsafe(c) {
-            escaped.extend(c.escape_default());
-        } else {
-            escaped.push(c);
-        }
-    }
-    escaped
-}
-
 /// Writes a signature atomically. An existing file is replaced; a missing directory is an error.
 pub fn write(path: &Path, sig: &Signature) -> Result<(), Error> {
     let buf = encode(sig)?;
@@ -52,17 +38,19 @@ pub fn read(path: &Path) -> Result<Signature, Error> {
     decode(&data)
 }
 
-/// Makes a file name safe to embed as a trusted comment field. Valid UTF-8 is escaped like
-/// [`escape_comment_field`]; bytes that are not valid UTF-8 are written as `\xNN`, so different names stay
-/// different instead of all turning into U+FFFD.
+/// Makes a file name safe to embed as one field of a trusted comment: forbidden characters, the tab that separates
+/// fields, and the backslash that starts an escape are written as Rust-style escapes such as `\t` or `\u{202e}`.
+/// Bytes that are not valid UTF-8 are written as `\xNN`, so different names stay different instead of all turning
+/// into U+FFFD.
 pub fn escape_file_name(name: &OsStr) -> String {
-    let mut escaped = String::with_capacity(name.len());
-    for chunk in name.as_encoded_bytes().utf8_chunks() {
-        escaped.push_str(&escape_comment_field(chunk.valid()));
-        for byte in chunk.invalid() {
-            escaped.push_str(&format!("\\x{byte:02x}"));
-        }
-    }
+    escape_field(name.as_encoded_bytes())
+}
+
+fn escape_field(bytes: &[u8]) -> String {
+    let mut escaped = String::with_capacity(bytes.len());
+    let must_escape = |c| matches!(c, '\t' | '\\') || terminal::is_unsafe(c);
+    // Writing into a String can't fail.
+    let _ = terminal::write_escaped(&mut escaped, bytes, must_escape);
     escaped
 }
 
@@ -75,24 +63,20 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
     let comment_bytes = sig.trusted_comment.as_bytes();
 
     let mut buf = Vec::new();
-    let version = match sig.version {
-        Version::V1 => 1,
-        Version::V2 { .. } => 2,
-    };
     FileHeader {
-        version,
+        version: sig.format().number(),
         file_type: FileType::Signature,
         key_id: sig.key_id,
     }
-    .write_to(&mut buf)?;
+    .write_to(&mut buf);
     if let Version::V2 { signer } = sig.version {
-        super::write_u8(&mut buf, SUITE_ED25519_MLDSA65)?;
-        super::write_all(&mut buf, signer.as_bytes())?;
+        super::write_u8(&mut buf, SUITE_ED25519_MLDSA65);
+        super::write_all(&mut buf, signer.as_bytes());
     }
-    sig.ed25519.write_to(&mut buf)?;
-    sig.mldsa65.write_to(&mut buf)?;
-    super::write_u32_le(&mut buf, comment_bytes.len() as u32)?;
-    super::write_all(&mut buf, comment_bytes)?;
+    sig.ed25519.write_to(&mut buf);
+    sig.mldsa65.write_to(&mut buf);
+    super::write_u32_le(&mut buf, comment_bytes.len() as u32);
+    super::write_all(&mut buf, comment_bytes);
 
     Ok(buf)
 }
@@ -100,10 +84,7 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
 pub(super) fn decode(data: &[u8]) -> Result<Signature, Error> {
     let mut r = Cursor::new(data);
 
-    let header = FileHeader::read(&mut r)?;
-    if header.file_type != FileType::Signature {
-        return Err(Error::InvalidFormat("expected signature file".into()));
-    }
+    let header = FileHeader::read_expecting(&mut r, FileType::Signature)?;
 
     let version = match header.version {
         1 => Version::V1,

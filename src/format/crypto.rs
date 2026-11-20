@@ -5,30 +5,33 @@ use chacha20poly1305::{
 };
 use zeroize::Zeroizing;
 
+use super::kdf::Kdf;
 use crate::errors::Error;
 
 const ENCRYPTION_KEY_LEN: usize = 32;
+/// The Argon2id salt stored in a secret key file.
+pub(super) const SALT_LEN: usize = 16;
+/// The XChaCha20-Poly1305 nonce stored in a secret key file.
+pub(super) const NONCE_LEN: usize = 24;
+/// The Poly1305 tag at the end of the ciphertext.
+pub(super) const TAG_LEN: usize = 16;
 
-pub(super) fn encrypt(plaintext: &[u8], password: &[u8], mem_limit: u64, ops_limit: u64, salt: &[u8], nonce: &[u8]) -> Result<Vec<u8>, Error> {
-    let key = derive_key(mem_limit, ops_limit, password, salt)?;
-
-    let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|e| Error::Crypto(format!("xchacha20: {e}")))?;
-
+pub(super) fn encrypt(plaintext: &[u8], password: &[u8], kdf: &Kdf, salt: &[u8; SALT_LEN], nonce: &[u8; NONCE_LEN]) -> Result<Vec<u8>, Error> {
+    let cipher = cipher(password, kdf, salt)?;
     cipher
-        .encrypt(&parse_nonce(nonce)?, plaintext)
+        .encrypt(&XNonce::from(*nonce), plaintext)
         .map_err(|e| Error::Crypto(format!("encrypt: {e}")))
 }
 
-pub(super) fn decrypt(ciphertext: &[u8], password: &[u8], mem_limit: u64, ops_limit: u64, salt: &[u8], nonce: &[u8]) -> Result<Vec<u8>, Error> {
-    let key = derive_key(mem_limit, ops_limit, password, salt)?;
-
-    let cipher = XChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|e| Error::Crypto(format!("xchacha20: {e}")))?;
-
-    cipher.decrypt(&parse_nonce(nonce)?, ciphertext).map_err(|_| Error::WrongPassword)
+pub(super) fn decrypt(ciphertext: &[u8], password: &[u8], kdf: &Kdf, salt: &[u8; SALT_LEN], nonce: &[u8; NONCE_LEN]) -> Result<Vec<u8>, Error> {
+    let cipher = cipher(password, kdf, salt)?;
+    cipher.decrypt(&XNonce::from(*nonce), ciphertext).map_err(|_| Error::WrongPassword)
 }
 
-fn parse_nonce(nonce: &[u8]) -> Result<XNonce, Error> {
-    XNonce::try_from(nonce).map_err(|e| Error::Crypto(format!("nonce: {e}")))
+/// The cipher keyed by the password. The key is copied into the cipher's state, which wipes itself on drop.
+fn cipher(password: &[u8], kdf: &Kdf, salt: &[u8; SALT_LEN]) -> Result<XChaCha20Poly1305, Error> {
+    let key = derive_key(kdf.mem_limit(), kdf.ops_limit(), password, salt)?;
+    XChaCha20Poly1305::new_from_slice(key.as_ref()).map_err(|e| Error::Crypto(format!("xchacha20: {e}")))
 }
 
 /// Argon2id parameters for a memory limit in bytes and an iteration count. Values that do not fit Argon2id's

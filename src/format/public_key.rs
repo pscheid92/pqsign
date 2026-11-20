@@ -2,7 +2,6 @@ use std::io::Cursor;
 use std::path::Path;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use fips204::traits::SerDes;
 
 use super::file::{self, Access};
 use super::{FileHeader, FileType};
@@ -14,21 +13,19 @@ use crate::errors::Error;
 const TEXT_VERSION: u8 = 1;
 const TEXT_PREFIX: &str = "pqsign:v1:";
 
-pub(super) fn encode(public_key: &PublicKey) -> Result<Vec<u8>, Error> {
+pub(super) fn encode(public_key: &PublicKey) -> Vec<u8> {
+    let (key_id, ed25519, mldsa65) = public_key.to_parts();
     let mut buf = Vec::new();
-    FileHeader::new(FileType::PublicKey, public_key.key_id).write_to(&mut buf)?;
-    Ed25519PublicKey::from_bytes(public_key.ed25519.to_bytes()).write_to(&mut buf)?;
-    MlDsa65PublicKey::from_bytes(public_key.mldsa65.clone().into_bytes()).write_to(&mut buf)?;
-    Ok(buf)
+    FileHeader::new(FileType::PublicKey, key_id).write_to(&mut buf);
+    ed25519.write_to(&mut buf);
+    mldsa65.write_to(&mut buf);
+    buf
 }
 
 pub(super) fn decode(data: &[u8]) -> Result<PublicKey, Error> {
     let mut r = Cursor::new(data);
 
-    let header = FileHeader::read(&mut r)?;
-    if header.file_type != FileType::PublicKey {
-        return Err(Error::InvalidFormat(format!("expected public key file, got: {:?}", header.file_type)));
-    }
+    let header = FileHeader::read_expecting(&mut r, FileType::PublicKey)?;
 
     let ed25519_pk = Ed25519PublicKey::read_from(&mut r)?;
     let mldsa65_pk = MlDsa65PublicKey::read_from(&mut r)?;
@@ -37,14 +34,14 @@ pub(super) fn decode(data: &[u8]) -> Result<PublicKey, Error> {
 }
 
 /// The single-line text form of a public key, as written to `.pub` files, including the trailing newline.
-pub fn encode_text(public_key: &PublicKey) -> Result<String, Error> {
-    let blob = encode(public_key)?;
-    Ok(format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob)))
+pub fn encode_text(public_key: &PublicKey) -> String {
+    let blob = encode(public_key);
+    format!("{TEXT_PREFIX}{}\n", STANDARD.encode(&blob))
 }
 
 /// Writes a public key atomically. An existing file is replaced.
 pub fn write(path: &Path, public_key: &PublicKey) -> Result<(), Error> {
-    let text = encode_text(public_key)?;
+    let text = encode_text(public_key);
     file::write(path, text.as_bytes(), Access::Public)
 }
 

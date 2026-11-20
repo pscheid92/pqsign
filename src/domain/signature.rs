@@ -25,12 +25,19 @@ pub enum SignatureFormat {
     V2,
 }
 
+impl SignatureFormat {
+    /// The version byte in the file header, and the number in "signature format v2".
+    pub fn number(self) -> u8 {
+        match self {
+            SignatureFormat::V1 => 1,
+            SignatureFormat::V2 => 2,
+        }
+    }
+}
+
 impl fmt::Display for SignatureFormat {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SignatureFormat::V1 => f.write_str("v1"),
-            SignatureFormat::V2 => f.write_str("v2"),
-        }
+        write!(f, "v{}", self.number())
     }
 }
 
@@ -39,6 +46,15 @@ impl fmt::Display for SignatureFormat {
 pub(crate) enum Version {
     V1,
     V2 { signer: Fingerprint },
+}
+
+impl Version {
+    pub(crate) fn format(self) -> SignatureFormat {
+        match self {
+            Version::V1 => SignatureFormat::V1,
+            Version::V2 { .. } => SignatureFormat::V2,
+        }
+    }
 }
 
 /// A hybrid signature over a file and trusted comment.
@@ -56,10 +72,7 @@ impl Signature {
     }
 
     pub fn format(&self) -> SignatureFormat {
-        match self.version {
-            Version::V1 => SignatureFormat::V1,
-            Version::V2 { .. } => SignatureFormat::V2,
-        }
+        self.version.format()
     }
 
     /// The fingerprint of the key that made a v2 signature. Only a claim of the file until `verify` succeeds.

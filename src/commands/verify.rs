@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::util::{check_input_file, resolve_key_path, resolve_signature_path};
+use super::util::{DEFAULT_SECRET_KEY, PUBLIC_KEY_SUFFIX, check_input_file, resolve_key_path, resolve_signature_path};
 use crate::domain::SignatureFormat;
 use crate::errors::Error;
 use crate::format;
@@ -30,7 +30,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let (public_key, pk_source) = match public_key_string {
         Some(s) => (format::read_public_key_string(&s)?, "<inline>".to_string()),
         None => {
-            let path = resolve_key_path(public_key, "default.key.pub")?;
+            let path = resolve_key_path(public_key, &format!("{DEFAULT_SECRET_KEY}{PUBLIC_KEY_SUFFIX}"))?;
             let pk = format::read_public_key(&path)?;
             (pk, SafePath(&path).to_string())
         }

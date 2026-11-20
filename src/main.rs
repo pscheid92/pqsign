@@ -84,6 +84,13 @@ impl From<PasswordArgs> for PasswordSource {
     }
 }
 
+/// The `-s` option of every command that uses a secret key.
+#[derive(Args)]
+struct SecretKeyArg {
+    #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
+    secret_key: Option<PathBuf>,
+}
+
 /// Signature format to write.
 #[derive(Clone, Copy, ValueEnum)]
 enum FormatArg {
@@ -107,8 +114,8 @@ enum Command {
     /// Generate a new key pair
     #[command(after_help = "The public key is written alongside the secret key with a .pub extension.")]
     Generate {
-        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
-        secret_key: Option<PathBuf>,
+        #[command(flatten)]
+        secret_key: SecretKeyArg,
 
         /// Overwrite existing key files
         #[arg(short = 'f', long, alias = "force")]
@@ -123,8 +130,8 @@ enum Command {
         /// File to sign
         file: PathBuf,
 
-        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
-        secret_key: Option<PathBuf>,
+        #[command(flatten)]
+        secret_key: SecretKeyArg,
 
         /// Signature file path
         #[arg(short = 'x', long = "sig-file")]
@@ -145,8 +152,8 @@ enum Command {
     /// Change the password of a secret key
     #[command(after_help = CHANGE_PASSWORD_HELP)]
     ChangePassword {
-        #[arg(short = 's', long = "secret-key", help = "Secret key file path [default: ~/.pqsign/default.key]")]
-        secret_key: Option<PathBuf>,
+        #[command(flatten)]
+        secret_key: SecretKeyArg,
 
         #[command(flatten)]
         password: PasswordArgs,
@@ -218,7 +225,7 @@ impl Cli {
                 overwrite,
                 password,
             } => generate::run(generate::Options {
-                secret_key,
+                secret_key: secret_key.secret_key,
                 password: password.into(),
                 overwrite,
                 kdf: Kdf::argon2id(),
@@ -233,7 +240,7 @@ impl Cli {
                 password,
             } => sign::run(sign::Options {
                 file,
-                secret_key,
+                secret_key: secret_key.secret_key,
                 sig_file,
                 trusted_comment,
                 password: password.into(),
@@ -245,7 +252,7 @@ impl Cli {
                 password,
                 new_password_file,
             } => change_password::run(change_password::Options {
-                secret_key,
+                secret_key: secret_key.secret_key,
                 password: password.into(),
                 new_password: new_password_file.map_or(PasswordSource::Prompt, PasswordSource::File),
                 kdf: Kdf::argon2id(),
@@ -265,7 +272,7 @@ impl Cli {
                 quiet,
             }),
 
-            Command::Inspect { file } => inspect::run(file),
+            Command::Inspect { file } => inspect::run(&file),
 
             Command::Completions { shell } => {
                 clap_complete::generate(shell, &mut Cli::command(), "pqsign", &mut std::io::stdout());

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::util::{mode_if_accessible_by_others, resolve_key_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others};
+use super::util::{mode_if_accessible_by_others, resolve_secret_key_path, warn_about_key_setup};
 use crate::errors::Error;
 use crate::format::{self, Kdf};
 use crate::password::PasswordSource;
@@ -23,17 +23,12 @@ pub fn run(opts: Options) -> Result<(), Error> {
         new_password,
         kdf,
     } = opts;
-    let secret_key_path = resolve_key_path(secret_key, "default.key")?;
+    let secret_key_path = resolve_secret_key_path(secret_key)?;
     // The rewritten file is private whatever the old one was, so instead of a warning, the old mode becomes a
     // note afterwards: anyone who could read the old file may have kept a copy under the old password.
     let old_mode = mode_if_accessible_by_others(&secret_key_path);
 
-    warn_if_directory_writable_by_others(&secret_key_path, "secret key");
-    for source in [&password, &new_password] {
-        if let PasswordSource::File(path) = source {
-            warn_if_accessible_by_others(path, "password file");
-        }
-    }
+    warn_about_key_setup(&secret_key_path, &[&password, &new_password]);
 
     let changed = format::change_secret_key_password(
         &secret_key_path,

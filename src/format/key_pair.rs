@@ -25,9 +25,8 @@ pub fn write_key_pair(
     overwrite: bool,
     kdf: &Kdf,
 ) -> Result<PublicKey, Error> {
-    let secret_data = secret_key::encode_v2(seeds, &password, kdf)?;
-    let (_, public) = seeds.key_pair().into_parts();
-    let public_text = public_key::encode_text(&public)?;
+    let (secret_data, public) = secret_key::encode_v2(seeds, &password, kdf)?;
+    let public_text = public_key::encode_text(&public);
 
     file::create_parent_dir(secret_path)?;
     file::create_parent_dir(public_path)?;

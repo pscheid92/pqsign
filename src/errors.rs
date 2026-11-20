@@ -5,9 +5,6 @@ use crate::terminal::SafePath;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-
     #[error("{context}: {}", io_message(.source))]
     IoPath { source: std::io::Error, context: String },
 

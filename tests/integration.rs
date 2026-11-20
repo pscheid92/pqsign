@@ -73,9 +73,9 @@ fn test_generate_sign_verify_roundtrip() {
     sig(file_path.clone(), sk_path.clone(), Some(sig_path.clone()), None).unwrap();
     ver(file_path.clone(), pk_path.clone(), sig_path.clone()).unwrap();
 
-    inspect::run(pk_path).unwrap();
-    inspect::run(sk_path).unwrap();
-    inspect::run(sig_path).unwrap();
+    inspect::run(&pk_path).unwrap();
+    inspect::run(&sk_path).unwrap();
+    inspect::run(&sig_path).unwrap();
 }
 
 #[test]

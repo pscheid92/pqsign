@@ -163,9 +163,9 @@ impl SecretKey {
 
 /// A public key for verifying signatures.
 pub struct PublicKey {
-    pub(crate) key_id: KeyId,
-    pub(crate) ed25519: ed25519::VerifyingKey,
-    pub(crate) mldsa65: ml_dsa_65::PublicKey,
+    pub(super) key_id: KeyId,
+    pub(super) ed25519: ed25519::VerifyingKey,
+    pub(super) mldsa65: ml_dsa_65::PublicKey,
 }
 
 impl PublicKey {
@@ -175,6 +175,14 @@ impl PublicKey {
 
     pub fn fingerprint(&self) -> Fingerprint {
         Fingerprint::of(&self.ed25519, &self.mldsa65)
+    }
+
+    /// The key ID and both public keys as bytes, the inverse of [`PublicKey::from_parts`]. The file format uses
+    /// this instead of the `ed25519-dalek` and `fips204` types, so only `domain` depends on them.
+    pub fn to_parts(&self) -> (KeyId, Ed25519PublicKey, MlDsa65PublicKey) {
+        let ed25519 = Ed25519PublicKey::from_bytes(self.ed25519.to_bytes());
+        let mldsa65 = MlDsa65PublicKey::from_bytes(self.mldsa65.clone().into_bytes());
+        (self.key_id, ed25519, mldsa65)
     }
 
     pub fn from_parts(key_id: KeyId, ed25519: Ed25519PublicKey, mldsa65: MlDsa65PublicKey) -> Result<Self, Error> {

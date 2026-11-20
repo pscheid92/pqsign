@@ -104,14 +104,12 @@ pub(super) fn read_from(r: &mut impl std::io::Read) -> Result<Kdf, Error> {
     Ok(kdf)
 }
 
-pub(super) fn write_to(kdf: &Kdf, w: &mut impl std::io::Write) -> Result<(), Error> {
+pub(super) fn write_to(kdf: &Kdf, buf: &mut Vec<u8>) {
     let Kdf::Argon2id { mem_limit, ops_limit } = kdf;
 
-    super::write_u8(w, KDF_ARGON2ID_BYTE)?;
-    super::write_u64_le(w, *mem_limit)?;
-    super::write_u64_le(w, *ops_limit)?;
-
-    Ok(())
+    super::write_u8(buf, KDF_ARGON2ID_BYTE);
+    super::write_u64_le(buf, *mem_limit);
+    super::write_u64_le(buf, *ops_limit);
 }
 
 #[cfg(test)]

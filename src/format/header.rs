@@ -68,6 +68,17 @@ impl FileHeader {
         }
     }
 
+    /// Reads a header and requires it to be of `expected` type.
+    pub(super) fn read_expecting(r: &mut impl std::io::Read, expected: FileType) -> Result<Self, Error> {
+        let header = Self::read(r)?;
+        if header.file_type != expected {
+            let msg = format!("expected a {} file, got a {} file", expected.name(), header.file_type.name());
+            let err = Error::InvalidFormat(msg);
+            return Err(err);
+        }
+        Ok(header)
+    }
+
     pub fn read(r: &mut impl std::io::Read) -> Result<Self, Error> {
         let magic: [u8; 4] = super::read_exact_array(r)?;
         if &magic != MAGIC {
@@ -82,12 +93,11 @@ impl FileHeader {
         Ok(FileHeader { version, file_type, key_id })
     }
 
-    pub fn write_to(&self, w: &mut impl std::io::Write) -> Result<(), Error> {
-        super::write_all(w, MAGIC)?;
-        super::write_u8(w, self.version)?;
-        super::write_u8(w, self.file_type.to_byte())?;
-        self.key_id.write_to(w)?;
-        Ok(())
+    pub fn write_to(&self, buf: &mut Vec<u8>) {
+        super::write_all(buf, MAGIC);
+        super::write_u8(buf, self.version);
+        super::write_u8(buf, self.file_type.to_byte());
+        self.key_id.write_to(buf);
     }
 }
 

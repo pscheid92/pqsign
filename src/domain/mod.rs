@@ -1,15 +1,16 @@
 mod fingerprint;
 mod keys;
-pub mod signature;
+mod signature;
 mod types;
 
 pub use fingerprint::Fingerprint;
 pub use keys::{KeyPair, PublicKey, SecretKey, SecretSeeds};
-pub use signature::{Signature, SignatureFormat};
+pub(crate) use signature::Version;
+pub use signature::{SUITE_ED25519_MLDSA65, Signature, SignatureFormat};
 pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Seed, MlDsa65Signature};
 
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::path::Path;
 
 use blake2::{Blake2b512, Digest};
@@ -17,12 +18,12 @@ use blake2::{Blake2b512, Digest};
 use crate::errors::{Error, IoContext};
 
 fn prehash_file(path: &Path) -> Result<[u8; 64], Error> {
-    let file = File::open(path).io_context(path)?;
-    let mut reader = BufReader::new(file);
+    // Read in 64 KiB chunks straight into the hasher; a BufReader would only add a second copy of each chunk.
+    let mut file = File::open(path).io_context(path)?;
     let mut hasher = Blake2b512::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
-        let n = reader.read(&mut buf).io_context(path)?;
+        let n = file.read(&mut buf).io_context(path)?;
         if n == 0 {
             break;
         }
@@ -210,8 +211,8 @@ mod tests {
         assert_eq!(a.public_key.ed25519.to_bytes(), b.public_key.ed25519.to_bytes());
         assert_eq!(a.public_key.mldsa65.clone().into_bytes(), b.public_key.mldsa65.clone().into_bytes());
         assert_eq!(
-            crate::format::encode_public_key(&a.public_key).unwrap(),
-            crate::format::encode_public_key(&b.public_key).unwrap()
+            crate::format::encode_public_key(&a.public_key),
+            crate::format::encode_public_key(&b.public_key)
         );
 
         let other = seeds([1; 32], [3; 32]).key_pair();

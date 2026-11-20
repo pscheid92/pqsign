@@ -10,9 +10,6 @@ use crate::domain::*;
 use crate::errors::Error;
 use crate::format::kdf::Kdf;
 
-const ARGON2_SALT_LEN: usize = 16;
-const XCHACHA20_NONCE_LEN: usize = 24;
-const POLY1305_TAG_LEN: usize = 16;
 /// Secret key format v1 (pqsign 0.1 to 0.3): the Ed25519 private key, the expanded ML-DSA-65 secret key and the
 /// key ID.
 const V1_PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65SecretKey::LEN + KeyId::LEN;
@@ -26,7 +23,7 @@ const V2_PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65Seed::LEN;
 /// Argon2id. Nothing encodes format v1 any more; [`change_password`] re-encrypts an existing format v1 payload
 /// unchanged.
 pub fn write(path: &Path, seeds: &SecretSeeds, password: Zeroizing<String>, kdf: &Kdf) -> Result<(), Error> {
-    let data = encode_v2(seeds, &password, kdf)?;
+    let (data, _) = encode_v2(seeds, &password, kdf)?;
     file::write(path, &data, Access::Private)
 }
 
@@ -96,19 +93,19 @@ pub fn change_password(
 struct Parsed<'a> {
     header: FileHeader,
     kdf: Kdf,
-    salt: [u8; ARGON2_SALT_LEN],
-    nonce: [u8; XCHACHA20_NONCE_LEN],
+    salt: [u8; crypto::SALT_LEN],
+    nonce: [u8; crypto::NONCE_LEN],
     ciphertext: &'a [u8],
 }
 
 /// Checks the header, the KDF parameters and the ciphertext length for the format version.
 fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     let mut r = Cursor::new(data);
-    let header = read_and_validate_header(&mut r)?;
+    let header = FileHeader::read_expecting(&mut r, FileType::SecretKey)?;
 
     let kdf = kdf::read_from(&mut r)?;
-    let salt: [u8; ARGON2_SALT_LEN] = super::read_exact_array(&mut r)?;
-    let nonce: [u8; XCHACHA20_NONCE_LEN] = super::read_exact_array(&mut r)?;
+    let salt: [u8; crypto::SALT_LEN] = super::read_exact_array(&mut r)?;
+    let nonce: [u8; crypto::NONCE_LEN] = super::read_exact_array(&mut r)?;
     let ciphertext = &data[r.position() as usize..];
     check_ciphertext_len(header.version, ciphertext.len())?;
 
@@ -121,9 +118,11 @@ fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     })
 }
 
-/// Decrypts the payload of a parsed file into a buffer that is wiped on drop.
+/// Decrypts the payload of a parsed file, of either format version, into a buffer that is wiped on drop.
+/// [`change_password`] encrypts the same bytes again without knowing the payload layout.
 fn decrypt(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<Zeroizing<Vec<u8>>, Error> {
-    decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)
+    let plaintext = crypto::decrypt(parsed.ciphertext, password.as_bytes(), &parsed.kdf, &parsed.salt, &parsed.nonce)?;
+    Ok(Zeroizing::new(plaintext))
 }
 
 /// Decodes a decrypted payload by format version, which runs that version's key-ID check.
@@ -147,11 +146,7 @@ fn decode(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> {
 fn check_rewritten(rewritten: &[u8], original: &[u8], password: &Zeroizing<String>, plaintext: &[u8], kdf: &Kdf) -> Result<(), Error> {
     let reads_back = rewritten.len() == original.len()
         && rewritten[..FileHeader::LEN] == original[..FileHeader::LEN]
-        && parse(rewritten).is_ok_and(|parsed| {
-            parsed.kdf == *kdf
-                && decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)
-                    .is_ok_and(|read_back| *read_back == *plaintext)
-        });
+        && parse(rewritten).is_ok_and(|parsed| parsed.kdf == *kdf && decrypt(&parsed, password).is_ok_and(|read_back| *read_back == *plaintext));
 
     if !reads_back {
         let msg = "the re-encrypted secret key did not read back with the new password; the secret key file was left \
@@ -171,14 +166,6 @@ fn check_unchanged(path: &Path, original: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-fn read_and_validate_header(r: &mut impl std::io::Read) -> Result<FileHeader, Error> {
-    let header = FileHeader::read(r)?;
-    if header.file_type != FileType::SecretKey {
-        return Err(Error::InvalidFormat("expected secret key file".into()));
-    }
-    Ok(header)
-}
-
 /// Unreachable while [`FileHeader::read`] rejects secret key versions other than 1 and 2.
 fn unsupported_version(version: u8) -> Error {
     Error::InvalidFormat(format!("unsupported secret key format v{version}"))
@@ -187,8 +174,8 @@ fn unsupported_version(version: u8) -> Error {
 /// The length of the encrypted payload and its tag in each format version.
 fn ciphertext_len(version: u8) -> Result<usize, Error> {
     match version {
-        1 => Ok(V1_PAYLOAD_LEN + POLY1305_TAG_LEN),
-        2 => Ok(V2_PAYLOAD_LEN + POLY1305_TAG_LEN),
+        1 => Ok(V1_PAYLOAD_LEN + crypto::TAG_LEN),
+        2 => Ok(V2_PAYLOAD_LEN + crypto::TAG_LEN),
         other => Err(unsupported_version(other)),
     }
 }
@@ -206,26 +193,13 @@ fn check_ciphertext_len(version: u8, len: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// Decrypts the payload of either format version into a buffer that is wiped on drop. [`change_password`]
-/// encrypts the same bytes again without knowing the payload layout.
-fn decrypt_payload(
-    ciphertext: &[u8],
-    password: &Zeroizing<String>,
-    kdf: &Kdf,
-    salt: &[u8; ARGON2_SALT_LEN],
-    nonce: &[u8; XCHACHA20_NONCE_LEN],
-) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let plaintext = crypto::decrypt(ciphertext, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), salt, nonce)?;
-    Ok(Zeroizing::new(plaintext))
-}
-
 // -- Write helpers --
 
 /// Format v2: the Ed25519 private key, then the ML-DSA-65 seed ξ, the order every other pqsign structure uses.
 /// The header's key ID is derived from the seeds being encoded, never passed in, so a file can't carry a key ID
 /// that doesn't match its keys. The KDF parameters are checked like those read from a key file, so pqsign never
 /// writes a key it would refuse to read.
-pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: &Kdf) -> Result<Vec<u8>, Error> {
+pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: &Kdf) -> Result<(Vec<u8>, PublicKey), Error> {
     kdf.check()?;
 
     // Exact capacity: the buffer never reallocates, so no unwiped copy of the seeds is left on the heap.
@@ -233,8 +207,9 @@ pub(super) fn encode_v2(seeds: &SecretSeeds, password: &Zeroizing<String>, kdf: 
     payload.extend_from_slice(seeds.ed25519().as_bytes());
     payload.extend_from_slice(seeds.mldsa65().as_bytes());
 
-    let key_id = seeds.key_pair().public_key.key_id();
-    seal(&FileHeader::new(FileType::SecretKey, key_id), &payload, password, kdf)
+    let (_, public_key) = seeds.key_pair().into_parts();
+    let data = seal(&FileHeader::new(FileType::SecretKey, public_key.key_id()), &payload, password, kdf)?;
+    Ok((data, public_key))
 }
 
 /// Writes `header`, then the sealed part of the file: the KDF block, a fresh salt and nonce, and `plaintext`
@@ -244,19 +219,19 @@ fn seal(header: &FileHeader, plaintext: &[u8], password: &Zeroizing<String>, kdf
     kdf.check()?;
 
     let mut rng = rand::rng();
-    let mut salt = [0u8; ARGON2_SALT_LEN];
+    let mut salt = [0u8; crypto::SALT_LEN];
     rng.fill_bytes(&mut salt);
-    let mut nonce = [0u8; XCHACHA20_NONCE_LEN];
+    let mut nonce = [0u8; crypto::NONCE_LEN];
     rng.fill_bytes(&mut nonce);
 
-    let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), &salt, &nonce)?;
+    let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf, &salt, &nonce)?;
 
     let mut buf = Vec::new();
-    header.write_to(&mut buf)?;
-    kdf::write_to(kdf, &mut buf)?;
-    super::write_all(&mut buf, &salt)?;
-    super::write_all(&mut buf, &nonce)?;
-    super::write_all(&mut buf, &encrypted)?;
+    header.write_to(&mut buf);
+    kdf::write_to(kdf, &mut buf);
+    super::write_all(&mut buf, &salt);
+    super::write_all(&mut buf, &nonce);
+    super::write_all(&mut buf, &encrypted);
 
     Ok(buf)
 }
@@ -324,7 +299,7 @@ mod tests {
 
     /// The original file, what it opens to, and a correct rewrite of it under "new".
     fn rewrite() -> (Vec<u8>, Zeroizing<Vec<u8>>, Vec<u8>) {
-        let original = encode_v2(&SecretSeeds::generate(), &pw("old"), &KDF).unwrap();
+        let (original, _) = encode_v2(&SecretSeeds::generate(), &pw("old"), &KDF).unwrap();
         let parsed = parse(&original).unwrap();
         let plaintext = decrypt(&parsed, &pw("old")).unwrap();
         let rewritten = seal(&parsed.header, &plaintext, &pw("new"), &KDF).unwrap();
