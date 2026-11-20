@@ -66,7 +66,7 @@ git push origin vX.Y.Z
 gh run watch "$(gh run list --workflow release.yml --event push --limit 1 --json databaseId -q '.[0].databaseId')"
 ```
 
-A full run takes about five to ten minutes. The jobs run in this order, and each only if the previous one succeeded: version check, CI, build, sign, GitHub release, crates.io publish. See [what the workflow does](#what-the-workflow-does).
+A full run takes about five to ten minutes. The jobs run in this order, and each only if the previous one succeeded: version check, CI, build, sign, publish dry run, GitHub release, crates.io publish. See [what the workflow does](#what-the-workflow-does).
 
 If a job fails:
 
@@ -146,8 +146,9 @@ Each step only runs if the previous one succeeded:
 3. Builds the five release targets with `--locked`, the exact Rust version set in the workflow and [`scripts/release-build.sh`](../scripts/release-build.sh), which keeps build paths out of the binary and embeds the dependency list with cargo-auditable. Each target is built a second time from another directory, and the job fails if the two binaries differ. A CycloneDX SBOM is written per target.
 4. Signs every archive and SBOM with a `.pqsig` in the current format, and every archive also with a `.v1.pqsig` for pqsign 0.1, which cannot read format v2.
 5. Verifies every signature against the committed `release.key.pub`. A release secret that does not match the committed key fails here.
-6. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives and signatures. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.
-7. Publishes the crate to crates.io, last, because a published version can never be replaced.
+6. Runs `cargo publish --dry-run`, on real releases too, so a crate that can't be published fails while nothing is published yet.
+7. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives and signatures. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.
+8. Publishes the crate to crates.io, last, because a published version can never be replaced. The publish steps use the same pinned Rust version as the build.
 
 ### Audit failures
 
@@ -155,11 +156,11 @@ A failing audit blocks the release. Update the affected dependency, or, if the a
 
 ## Rust version
 
-Release binaries are built with the Rust version in the build job of `release.yml`, not with whatever is stable on release day. When a new Rust version comes out, Renovate proposes it in its own pull request, which also updates the rebuild instructions in `docs/install.md`; the dry run on that pull request builds the release with it. Merge it before a release if the release should use it. Renovate does the same for cargo-auditable and cargo-cyclonedx, which the same job installs.
+Release binaries are built, and the crate is published, with the Rust version pinned in `release.yml`, not with whatever is stable on release day. When a new Rust version comes out, Renovate proposes it in its own pull request, which also updates the rebuild instructions in `docs/install.md`; the dry run on that pull request builds the release with it. Merge it before a release if the release should use it. Renovate does the same for cargo-auditable and cargo-cyclonedx, which the same job installs.
 
 ## Dry runs
 
-Starting the workflow manually, or opening a pull request that changes `release.yml` or `ci.yml`, runs steps 1 to 5 with a throwaway key generated inside the run, so the release secrets are never used. Instead of steps 6 and 7 it runs `cargo publish --dry-run`. The signed files are kept as the `signed-release` workflow artifact.
+Starting the workflow manually, or opening a pull request that changes `release.yml`, `ci.yml`, `scripts/`, `Cargo.toml` or `Cargo.lock`, runs steps 1 to 6 with a throwaway key generated inside the run, so the release secrets are never used. It skips steps 7 and 8. The signed files are kept as the `signed-release` workflow artifact.
 
 ## Secrets
 

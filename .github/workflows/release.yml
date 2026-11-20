@@ -9,9 +9,13 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+    # Everything that decides the bytes of a release binary, so its reproducibility is checked before release day.
     paths:
       - .github/workflows/release.yml
       - .github/workflows/ci.yml
+      - scripts/**
+      - Cargo.toml
+      - Cargo.lock
 
 permissions:
   contents: read
@@ -88,14 +92,13 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: ${{ matrix.target }}
-
-      # Pinned like the actions. cargo-auditable embeds the dependency list in the binary; cargo-cyclonedx writes the
-      # SBOM published next to each archive.
+      # Pinned like the actions, and installed as prebuilt, checksummed binaries rather than compiled on every runner.
+      # cargo-auditable embeds the dependency list in the binary; cargo-cyclonedx writes the SBOM published next to
+      # each archive. No build cache: a cache saved under a tag can't be restored by the next tag.
       - name: Install build tools
-        run: cargo install --locked cargo-auditable@0.7.7 cargo-cyclonedx@0.5.10
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-auditable@0.7.7,cargo-cyclonedx@0.5.10
 
       # The script holds the flags that make the build reproducible, so people rebuilding a release use the same.
       - name: Build
@@ -235,7 +238,7 @@ jobs:
           path: artifacts/
 
   github-release:
-    needs: sign
+    needs: [sign, publish-dry-run]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -262,7 +265,8 @@ jobs:
           generate_release_notes: true
           files: artifacts/*
 
-  # Last, because a published crate version can never be replaced.
+  # Last, because a published crate version can never be replaced. The same Rust version as the build and the dry run,
+  # so a new stable release can't break publishing on release day after the GitHub release exists.
   publish:
     needs: github-release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -271,18 +275,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
       - run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  # Runs on every trigger, real releases included, before the GitHub release: a package that can't be published fails
+  # here, while nothing is published yet.
   publish-dry-run:
     needs: sign
-    if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable branch
         with:
-          toolchain: stable
+          toolchain: "1.100.0"
       - run: cargo publish --dry-run --locked
