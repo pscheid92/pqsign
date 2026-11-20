@@ -185,10 +185,13 @@ jobs:
 
       # The licence texts and copyright notices of the crates compiled into the binary, which their licences (BSD-3,
       # MIT, Apache-2.0) ask to ship with it. about.toml accepts the licences deny.toml allows, so CI already fails on
-      # any other. Offline, from the crates the build just downloaded, so the file doesn't depend on a web service;
-      # --fail stops the release if a licence can't be read.
+      # any other. about.toml covers all five targets, so every job writes the same file; `cargo fetch` downloads the
+      # crates of the other platforms, which this job's build didn't need. Generating offline then keeps the file
+      # independent of any web service, and --fail stops the release if a licence can't be read.
       - name: Write the third-party notices
-        run: cargo about generate --offline --fail -o THIRD-PARTY-NOTICES.txt about.hbs
+        run: |
+          cargo fetch --locked
+          cargo about generate --offline --fail -o THIRD-PARTY-NOTICES.txt about.hbs
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
