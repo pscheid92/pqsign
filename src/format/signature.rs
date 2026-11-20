@@ -30,15 +30,7 @@ pub fn check_trusted_comment(comment: &str) -> Result<(), Error> {
 /// Makes text safe to embed as one field of a trusted comment: forbidden characters, the tab that separates
 /// fields, and the backslash that starts an escape are written as Rust-style escapes such as `\t` or `\u{202e}`.
 pub fn escape_comment_field(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        if matches!(c, '\t' | '\\') || terminal::is_unsafe(c) {
-            escaped.extend(c.escape_default());
-        } else {
-            escaped.push(c);
-        }
-    }
-    escaped
+    escape_field(text.as_bytes())
 }
 
 /// Writes a signature atomically. An existing file is replaced; a missing directory is an error.
@@ -56,13 +48,14 @@ pub fn read(path: &Path) -> Result<Signature, Error> {
 /// [`escape_comment_field`]; bytes that are not valid UTF-8 are written as `\xNN`, so different names stay
 /// different instead of all turning into U+FFFD.
 pub fn escape_file_name(name: &OsStr) -> String {
-    let mut escaped = String::with_capacity(name.len());
-    for chunk in name.as_encoded_bytes().utf8_chunks() {
-        escaped.push_str(&escape_comment_field(chunk.valid()));
-        for byte in chunk.invalid() {
-            escaped.push_str(&format!("\\x{byte:02x}"));
-        }
-    }
+    escape_field(name.as_encoded_bytes())
+}
+
+fn escape_field(bytes: &[u8]) -> String {
+    let mut escaped = String::with_capacity(bytes.len());
+    let must_escape = |c| matches!(c, '\t' | '\\') || terminal::is_unsafe(c);
+    // Writing into a String can't fail.
+    let _ = terminal::write_escaped(&mut escaped, bytes, must_escape);
     escaped
 }
 

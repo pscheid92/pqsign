@@ -5,7 +5,7 @@
 //! pqsign prints that it did not write itself goes through [`SafePath`] or [`SafeText`], or is rejected before
 //! it gets there, as trusted comments are.
 
-use std::fmt::{self, Write as _};
+use std::fmt;
 use std::path::Path;
 
 /// Whether `c` must not reach the terminal as is. Control characters other than tab can move the cursor,
@@ -23,13 +23,7 @@ pub struct SafePath<'a>(pub &'a Path);
 
 impl fmt::Display for SafePath<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for chunk in self.0.as_os_str().as_encoded_bytes().utf8_chunks() {
-            write_escaped(f, chunk.valid())?;
-            for byte in chunk.invalid() {
-                write!(f, "\\x{byte:02x}")?;
-            }
-        }
-        Ok(())
+        write_escaped(f, self.0.as_os_str().as_encoded_bytes(), is_unsafe)
     }
 }
 
@@ -38,16 +32,23 @@ pub struct SafeText<'a>(pub &'a str);
 
 impl fmt::Display for SafeText<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_escaped(f, self.0)
+        write_escaped(f, self.0.as_bytes(), is_unsafe)
     }
 }
 
-fn write_escaped(f: &mut fmt::Formatter<'_>, text: &str) -> fmt::Result {
-    for c in text.chars() {
-        if is_unsafe(c) {
-            write!(f, "{}", c.escape_default())?;
-        } else {
-            f.write_char(c)?;
+/// Writes `bytes` with every character `escape` selects written as a Rust-style escape such as `\u{1b}`, and bytes
+/// that are not valid UTF-8 as `\xNN`. [`SafePath`], [`SafeText`] and the trusted comment fields share it.
+pub(crate) fn write_escaped(out: &mut impl fmt::Write, bytes: &[u8], escape: impl Fn(char) -> bool) -> fmt::Result {
+    for chunk in bytes.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            if escape(c) {
+                write!(out, "{}", c.escape_default())?;
+            } else {
+                out.write_char(c)?;
+            }
+        }
+        for byte in chunk.invalid() {
+            write!(out, "\\x{byte:02x}")?;
         }
     }
     Ok(())

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::util::{resolve_key_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix};
+use super::util::{public_key_path, resolve_secret_key_path, warn_about_key_setup};
 use crate::domain::SecretSeeds;
 use crate::errors::Error;
 use crate::format::{self, Kdf};
@@ -30,10 +30,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     }
 
     // The secret key itself is about to be written with mode 0600, so only where it goes and the password matter.
-    warn_if_directory_writable_by_others(&secret_key_path, "secret key");
-    if let PasswordSource::File(path) = &password {
-        warn_if_accessible_by_others(path, "password file");
-    }
+    warn_about_key_setup(&secret_key_path, &[&password]);
     let password = password.read_new()?;
 
     eprintln!("Generating key pair...");
@@ -54,8 +51,8 @@ pub fn run(opts: Options) -> Result<(), Error> {
 }
 
 fn resolve_paths(secret_key: Option<PathBuf>) -> Result<(PathBuf, PathBuf), Error> {
-    let secret_key_path = resolve_key_path(secret_key, "default.key")?;
-    let public_key_path = with_suffix(&secret_key_path, ".pub");
+    let secret_key_path = resolve_secret_key_path(secret_key)?;
+    let public_key_path = public_key_path(&secret_key_path);
     Ok((secret_key_path, public_key_path))
 }
 

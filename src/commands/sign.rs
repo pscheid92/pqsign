@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::util::{
-    check_input_file, resolve_key_path, resolve_signature_path, warn_if_accessible_by_others, warn_if_directory_writable_by_others, with_suffix,
+    check_input_file, public_key_path, resolve_secret_key_path, resolve_signature_path, warn_about_key_setup, warn_if_accessible_by_others,
 };
 use crate::domain::SignatureFormat;
 use crate::errors::Error;
@@ -28,7 +28,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
         password,
         format,
     } = opts;
-    let secret_key_path = resolve_key_path(secret_key, "default.key")?;
+    let secret_key_path = resolve_secret_key_path(secret_key)?;
     let signature_path = resolve_signature_path(sig_file, &file)?;
 
     // Validate the input file and the comment before asking for the password
@@ -37,10 +37,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
     let trusted = build_trusted_comment(&file, trusted_comment.as_deref());
     format::check_trusted_comment(&trusted)?;
     warn_if_accessible_by_others(&secret_key_path, "secret key");
-    warn_if_directory_writable_by_others(&secret_key_path, "secret key");
-    if let PasswordSource::File(path) = &password {
-        warn_if_accessible_by_others(path, "password file");
-    }
+    warn_about_key_setup(&secret_key_path, &[&password]);
 
     let secret_key = format::read_secret_key_with(&secret_key_path, |_kdf| password.read_existing())?;
     let signature = secret_key.sign_as(&file, &trusted, format)?;
@@ -55,7 +52,7 @@ pub fn run(opts: Options) -> Result<(), Error> {
 /// Refuses a signature path that names the file being signed or one of the key files, which the signature would
 /// replace.
 fn check_signature_path(signature: &Path, file: &Path, secret_key: &Path) -> Result<(), Error> {
-    let public_key = with_suffix(secret_key, ".pub");
+    let public_key = public_key_path(secret_key);
     let protected = [
         ("the file being signed", file),
         ("the secret key", secret_key),

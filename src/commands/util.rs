@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::errors::{Error, IoContext};
 use crate::format::SIG_FILE_EXTENSION;
+use crate::password::PasswordSource;
 use crate::terminal::SafePath;
 
 pub fn validate_file_path(path: &Path) -> Result<(), Error> {
@@ -38,6 +39,33 @@ pub fn resolve_key_path(path: Option<PathBuf>, default_filename: &str) -> Result
     };
     validate_file_path(&path)?;
     Ok(path)
+}
+
+/// The secret key file used when `-s` is not given, in `~/.pqsign`.
+pub const DEFAULT_SECRET_KEY: &str = "default.key";
+
+/// A public key sits next to its secret key and is named after it with this suffix.
+pub const PUBLIC_KEY_SUFFIX: &str = ".pub";
+
+/// The secret key named by `-s`, or the default one.
+pub fn resolve_secret_key_path(path: Option<PathBuf>) -> Result<PathBuf, Error> {
+    resolve_key_path(path, DEFAULT_SECRET_KEY)
+}
+
+/// The public key file that belongs to a secret key file.
+pub fn public_key_path(secret_key: &Path) -> PathBuf {
+    with_suffix(secret_key, PUBLIC_KEY_SUFFIX)
+}
+
+/// The warnings every command that reads or writes a secret key gives before asking for a password: about a
+/// directory other users can write to, which lets them replace the key, and about password files they can read.
+pub fn warn_about_key_setup(secret_key: &Path, passwords: &[&PasswordSource]) {
+    warn_if_directory_writable_by_others(secret_key, "secret key");
+    for source in passwords {
+        if let PasswordSource::File(path) = source {
+            warn_if_accessible_by_others(path, "password file");
+        }
+    }
 }
 
 pub fn resolve_signature_path(sig_file: Option<PathBuf>, file: &Path) -> Result<PathBuf, Error> {
