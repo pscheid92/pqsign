@@ -10,9 +10,6 @@ use crate::domain::*;
 use crate::errors::Error;
 use crate::format::kdf::Kdf;
 
-const ARGON2_SALT_LEN: usize = 16;
-const XCHACHA20_NONCE_LEN: usize = 24;
-const POLY1305_TAG_LEN: usize = 16;
 /// Secret key format v1 (pqsign 0.1 to 0.3): the Ed25519 private key, the expanded ML-DSA-65 secret key and the
 /// key ID.
 const V1_PAYLOAD_LEN: usize = Ed25519SecretKey::LEN + MlDsa65SecretKey::LEN + KeyId::LEN;
@@ -96,8 +93,8 @@ pub fn change_password(
 struct Parsed<'a> {
     header: FileHeader,
     kdf: Kdf,
-    salt: [u8; ARGON2_SALT_LEN],
-    nonce: [u8; XCHACHA20_NONCE_LEN],
+    salt: [u8; crypto::SALT_LEN],
+    nonce: [u8; crypto::NONCE_LEN],
     ciphertext: &'a [u8],
 }
 
@@ -107,8 +104,8 @@ fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     let header = read_and_validate_header(&mut r)?;
 
     let kdf = kdf::read_from(&mut r)?;
-    let salt: [u8; ARGON2_SALT_LEN] = super::read_exact_array(&mut r)?;
-    let nonce: [u8; XCHACHA20_NONCE_LEN] = super::read_exact_array(&mut r)?;
+    let salt: [u8; crypto::SALT_LEN] = super::read_exact_array(&mut r)?;
+    let nonce: [u8; crypto::NONCE_LEN] = super::read_exact_array(&mut r)?;
     let ciphertext = &data[r.position() as usize..];
     check_ciphertext_len(header.version, ciphertext.len())?;
 
@@ -121,9 +118,11 @@ fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     })
 }
 
-/// Decrypts the payload of a parsed file into a buffer that is wiped on drop.
+/// Decrypts the payload of a parsed file, of either format version, into a buffer that is wiped on drop.
+/// [`change_password`] encrypts the same bytes again without knowing the payload layout.
 fn decrypt(parsed: &Parsed<'_>, password: &Zeroizing<String>) -> Result<Zeroizing<Vec<u8>>, Error> {
-    decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)
+    let plaintext = crypto::decrypt(parsed.ciphertext, password.as_bytes(), &parsed.kdf, &parsed.salt, &parsed.nonce)?;
+    Ok(Zeroizing::new(plaintext))
 }
 
 /// Decodes a decrypted payload by format version, which runs that version's key-ID check.
@@ -147,11 +146,7 @@ fn decode(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> {
 fn check_rewritten(rewritten: &[u8], original: &[u8], password: &Zeroizing<String>, plaintext: &[u8], kdf: &Kdf) -> Result<(), Error> {
     let reads_back = rewritten.len() == original.len()
         && rewritten[..FileHeader::LEN] == original[..FileHeader::LEN]
-        && parse(rewritten).is_ok_and(|parsed| {
-            parsed.kdf == *kdf
-                && decrypt_payload(parsed.ciphertext, password, &parsed.kdf, &parsed.salt, &parsed.nonce)
-                    .is_ok_and(|read_back| *read_back == *plaintext)
-        });
+        && parse(rewritten).is_ok_and(|parsed| parsed.kdf == *kdf && decrypt(&parsed, password).is_ok_and(|read_back| *read_back == *plaintext));
 
     if !reads_back {
         let msg = "the re-encrypted secret key did not read back with the new password; the secret key file was left \
@@ -187,8 +182,8 @@ fn unsupported_version(version: u8) -> Error {
 /// The length of the encrypted payload and its tag in each format version.
 fn ciphertext_len(version: u8) -> Result<usize, Error> {
     match version {
-        1 => Ok(V1_PAYLOAD_LEN + POLY1305_TAG_LEN),
-        2 => Ok(V2_PAYLOAD_LEN + POLY1305_TAG_LEN),
+        1 => Ok(V1_PAYLOAD_LEN + crypto::TAG_LEN),
+        2 => Ok(V2_PAYLOAD_LEN + crypto::TAG_LEN),
         other => Err(unsupported_version(other)),
     }
 }
@@ -204,19 +199,6 @@ fn check_ciphertext_len(version: u8, len: usize) -> Result<(), Error> {
         return Err(err);
     }
     Ok(())
-}
-
-/// Decrypts the payload of either format version into a buffer that is wiped on drop. [`change_password`]
-/// encrypts the same bytes again without knowing the payload layout.
-fn decrypt_payload(
-    ciphertext: &[u8],
-    password: &Zeroizing<String>,
-    kdf: &Kdf,
-    salt: &[u8; ARGON2_SALT_LEN],
-    nonce: &[u8; XCHACHA20_NONCE_LEN],
-) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let plaintext = crypto::decrypt(ciphertext, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), salt, nonce)?;
-    Ok(Zeroizing::new(plaintext))
 }
 
 // -- Write helpers --
@@ -244,12 +226,12 @@ fn seal(header: &FileHeader, plaintext: &[u8], password: &Zeroizing<String>, kdf
     kdf.check()?;
 
     let mut rng = rand::rng();
-    let mut salt = [0u8; ARGON2_SALT_LEN];
+    let mut salt = [0u8; crypto::SALT_LEN];
     rng.fill_bytes(&mut salt);
-    let mut nonce = [0u8; XCHACHA20_NONCE_LEN];
+    let mut nonce = [0u8; crypto::NONCE_LEN];
     rng.fill_bytes(&mut nonce);
 
-    let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf.mem_limit(), kdf.ops_limit(), &salt, &nonce)?;
+    let encrypted = crypto::encrypt(plaintext, password.as_bytes(), kdf, &salt, &nonce)?;
 
     let mut buf = Vec::new();
     header.write_to(&mut buf)?;
