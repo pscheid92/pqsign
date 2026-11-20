@@ -165,7 +165,8 @@ fn test_public_key_invalid_base64() {
     let path = dir.path().join("bad.pub");
     std::fs::write(&path, "pqsign:v1:!!!not-base64!!!\n").unwrap();
 
-    assert!(matches!(read_public_key(&path), Err(Error::Base64(_))));
+    let msg = invalid_format_message(read_public_key(&path));
+    assert!(msg.contains("not valid base64"), "got: {msg}");
 }
 
 // -- Secret key tests --
@@ -586,7 +587,7 @@ fn test_secret_key_v2_header_key_id_mismatch_is_rejected() {
     std::fs::write(&path, &data).unwrap();
 
     match read_secret_key(&path, pw("test")) {
-        Err(Error::Crypto(msg)) => {
+        Err(Error::InvalidFormat(msg)) => {
             assert!(msg.contains("does not match its key ID"), "got: {msg}");
             assert!(msg.contains("restore the file from a backup"), "got: {msg}");
         }

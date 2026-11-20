@@ -90,16 +90,16 @@ pub fn change_password(
 // -- Shared helpers --
 
 /// Everything in a secret key file that can be checked without the password.
-struct Parsed<'a> {
-    header: FileHeader,
-    kdf: Kdf,
+pub(super) struct Parsed<'a> {
+    pub(super) header: FileHeader,
+    pub(super) kdf: Kdf,
     salt: [u8; crypto::SALT_LEN],
     nonce: [u8; crypto::NONCE_LEN],
     ciphertext: &'a [u8],
 }
 
 /// Checks the header, the KDF parameters and the ciphertext length for the format version.
-fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
+pub(super) fn parse(data: &[u8]) -> Result<Parsed<'_>, Error> {
     let mut r = Cursor::new(data);
     let header = FileHeader::read_expecting(&mut r, FileType::SecretKey)?;
 
@@ -261,8 +261,9 @@ fn deserialize_payload(data: &[u8]) -> Result<(Ed25519SecretKey, MlDsa65SecretKe
 
 /// Format v2 stores no key ID in the payload. Keys made from the seeds must have the header's key ID, which for
 /// format v2 is always the start of their fingerprint. That catches a changed header and also a build whose
-/// dependencies turn the same seed into a different key. This is an [`Error::Crypto`], not the
-/// [`Error::KeyIdMismatch`] of signature verification.
+/// dependencies turn the same seed into a different key. This is an [`Error::InvalidFormat`], like every other
+/// malformed input, not the [`Error::KeyIdMismatch`] of signature verification. (The frozen format v1 check above
+/// keeps reporting an [`Error::Crypto`].)
 fn decode_v2(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> {
     let mut r = Cursor::new(plaintext);
     let ed25519 = Ed25519SecretKey::read_from(&mut r)?;
@@ -273,7 +274,7 @@ fn decode_v2(plaintext: &[u8], header: &FileHeader) -> Result<SecretKey, Error> 
         let msg = "the key in this secret key file does not match its key ID; the file is corrupt, or this pqsign \
                    build derives keys differently from the one that wrote it; restore the file from a backup, and if \
                    the file is intact, report this as a pqsign bug";
-        return Err(Error::Crypto(msg.into()));
+        return Err(Error::InvalidFormat(msg.into()));
     }
 
     let (secret_key, _) = key_pair.into_parts();

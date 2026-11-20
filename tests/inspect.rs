@@ -116,3 +116,24 @@ fn test_inspect_corrupt_binary_fails() {
     let result = format::inspect_file(&path).err();
     assert!(matches!(result, Some(pqsign::errors::Error::InvalidFormat(_))), "got: {result:?}");
 }
+
+/// A truncated or padded secret key is reported as corrupt, as `sign` reports it, rather than as a valid key.
+#[test]
+fn test_inspect_rejects_a_truncated_or_padded_secret_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let sk_path = dir.path().join("test.key");
+    format::write_secret_key(&sk_path, &SecretSeeds::generate(), pw("test"), &TEST_KDF).unwrap();
+    let data = fs::read(&sk_path).unwrap();
+
+    let truncated = &data[..100];
+    let padded = [data.as_slice(), data.as_slice()].concat();
+    for corrupt in [truncated, padded.as_slice()] {
+        let path = dir.path().join("corrupt.key");
+        fs::write(&path, corrupt).unwrap();
+        match format::inspect_file(&path).err() {
+            Some(pqsign::errors::Error::InvalidFormat(msg)) => assert!(msg.contains("truncated or corrupt"), "got: {msg}"),
+            Some(other) => panic!("expected InvalidFormat, got: {other}"),
+            None => panic!("a corrupt secret key was inspected as valid"),
+        }
+    }
+}
