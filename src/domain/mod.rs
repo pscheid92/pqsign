@@ -1,11 +1,12 @@
 mod fingerprint;
 mod keys;
-pub mod signature;
+mod signature;
 mod types;
 
 pub use fingerprint::Fingerprint;
 pub use keys::{KeyPair, PublicKey, SecretKey, SecretSeeds};
-pub use signature::{Signature, SignatureFormat};
+pub(crate) use signature::Version;
+pub use signature::{SUITE_ED25519_MLDSA65, Signature, SignatureFormat};
 pub use types::{Ed25519PublicKey, Ed25519SecretKey, Ed25519Signature, KeyId, MlDsa65PublicKey, MlDsa65SecretKey, MlDsa65Seed, MlDsa65Signature};
 
 use std::fs::File;

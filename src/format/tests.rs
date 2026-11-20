@@ -933,7 +933,7 @@ fn test_signature_v2_roundtrip_and_layout() {
 
     let data = std::fs::read(&sig_path).unwrap();
     assert_eq!(data[4], 2, "header version");
-    assert_eq!(data[14], crate::domain::signature::SUITE_ED25519_MLDSA65, "suite");
+    assert_eq!(data[14], crate::domain::SUITE_ED25519_MLDSA65, "suite");
     assert_eq!(&data[15..47], pk.fingerprint().as_bytes(), "signer fingerprint");
 
     let sig = read_signature(&sig_path).unwrap();

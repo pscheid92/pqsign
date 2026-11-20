@@ -4,8 +4,8 @@ use std::path::Path;
 
 use super::file::{self, Access};
 use super::{FileHeader, FileType};
-use crate::domain::signature::{SUITE_ED25519_MLDSA65, Version};
 use crate::domain::*;
+use crate::domain::{SUITE_ED25519_MLDSA65, Version};
 use crate::errors::Error;
 use crate::terminal;
 
@@ -75,12 +75,8 @@ fn encode(sig: &Signature) -> Result<Vec<u8>, Error> {
     let comment_bytes = sig.trusted_comment.as_bytes();
 
     let mut buf = Vec::new();
-    let version = match sig.version {
-        Version::V1 => 1,
-        Version::V2 { .. } => 2,
-    };
     FileHeader {
-        version,
+        version: sig.format().number(),
         file_type: FileType::Signature,
         key_id: sig.key_id,
     }
