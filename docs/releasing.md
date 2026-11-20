@@ -20,7 +20,9 @@ git switch -c claude/release-vX.Y.Z
 cargo build
 ```
 
-Only those two files change. Run what the release workflow will run, plus the publish dry run:
+Write the release notes as `docs/release-notes/vX.Y.Z.md`, following the outline in [the release notes README](release-notes/README.md). They become the body of the GitHub release, so they get reviewed in the pull request, and the workflow refuses a tag without them.
+
+Only those three files change. Run what the release workflow will run, plus the publish dry run:
 
 ```bash
 cargo fmt --check
@@ -74,37 +76,23 @@ If a job fails:
 - **In the publish job**, the GitHub release already exists. Re-run only the failed job. Do not delete or move the tag: the release and its attestations name that commit.
 - A version on crates.io can never be replaced. If a published release is broken, release a new patch version, and yank the broken one only if it is harmful: `cargo yank --version X.Y.Z`.
 
-## 4. Write the release notes
+## 4. Release notes
 
-The workflow creates the release with notes GitHub generates from the merged pull requests. Replace them with notes written for users:
+The GitHub release gets `docs/release-notes/vX.Y.Z.md` from the tagged commit, followed by the shared section in [verifying.md](release-notes/verifying.md). To correct them after the release, fix the file on `main` and replace the published notes with the same text:
 
 ```bash
-gh release edit vX.Y.Z --notes-file release-notes.md
+{ cat docs/release-notes/vX.Y.Z.md; echo; sed "s/{{TAG}}/vX.Y.Z/g" docs/release-notes/verifying.md; } > notes.md
+gh release edit vX.Y.Z --notes-file notes.md
 ```
-
-Earlier releases follow this outline, with only the sections that apply:
-
-- One or two sentences on what the release is about, and whether commands, output, exit codes and file formats changed.
-- **Behaviour changes**: anything a user or script could notice.
-- **Security fixes**, in pqsign or its dependencies, with advisory IDs, and whether pqsign was affected.
-- **Under the hood** and **Documentation**: smaller changes worth knowing.
-- **Verifying this release**, kept as in the previous release: the release key fingerprint `BLAKE2b-256:tgolgaKRfSGSvflaZqCjVtX+YXy6I+/tgvAbOW/npIc`, and the `pqsign verify` and `gh attestation verify` commands from [install.md](install.md#verify-release-binaries). Links into the repository point at the tag, as in `blob/vX.Y.Z/docs/install.md`, so they keep working.
 
 ## 5. Check the published release
 
-From the repository root, which holds `release.key.pub`, download the release and check it the way a user would:
+The workflow already downloads the published release and checks it before it publishes the crate: every signature against `release.key.pub`, and the build provenance of every archive (the `check-release` job). What remains is the binary on your own machine. Check that it reports the new version and that its embedded dependency list has no known advisories:
 
 ```bash
 dir=$(mktemp -d)
-gh release download vX.Y.Z --dir "$dir"
-for archive in "$dir"/*.tar.gz "$dir"/*.zip; do pqsign verify "$archive" -p release.key.pub -q && echo "ok  $archive"; done
-gh attestation verify "$dir/pqsign-x86_64-unknown-linux-gnu.tar.gz" --repo pscheid92/pqsign \
-  --signer-workflow pscheid92/pqsign/.github/workflows/release.yml
-```
-
-Then check that the binary for your platform reports the new version and that its embedded dependency list has no known advisories:
-
-```bash
+gh release download vX.Y.Z --dir "$dir" --pattern 'pqsign-aarch64-apple-darwin.tar.gz*'
+pqsign verify "$dir/pqsign-aarch64-apple-darwin.tar.gz" -p release.key.pub
 tar -xzf "$dir/pqsign-aarch64-apple-darwin.tar.gz" -C "$dir"
 "$dir/pqsign" --version     # pqsign X.Y.Z
 cargo audit bin "$dir/pqsign"
@@ -114,20 +102,15 @@ Finally, check that crates.io lists the new version: `cargo search pqsign --limi
 
 ## 6. Update the Homebrew cask
 
-Nothing updates the cask automatically, because pqsign does not use GoReleaser. In pscheid92/homebrew-tap, [`Casks/pqsign.rb`](https://github.com/pscheid92/homebrew-tap/blob/main/Casks/pqsign.rb) needs the new `version` and the `sha256` of the four macOS and Linux archives. Take the checksums from the archives whose signatures you verified in step 5:
+Nothing updates the cask automatically, because pqsign does not use GoReleaser, and the tap is another repository. [`scripts/update-cask.sh`](../scripts/update-cask.sh) does the editing. It downloads the four macOS and Linux archives, verifies each against `release.key.pub`, and writes the new `version` and their `sha256` into [`Casks/pqsign.rb`](https://github.com/pscheid92/homebrew-tap/blob/main/Casks/pqsign.rb). Run it from the repository root with a checkout of pscheid92/homebrew-tap:
 
 ```bash
-shasum -a 256 "$dir"/*.tar.gz
+git -C ../homebrew-tap switch main && git -C ../homebrew-tap pull --ff-only
+git -C ../homebrew-tap switch -c pqsign-X.Y.Z
+scripts/update-cask.sh X.Y.Z ../homebrew-tap
 ```
 
-| Cask block | Archive |
-|---|---|
-| `on_macos` / `on_arm` | `pqsign-aarch64-apple-darwin.tar.gz` |
-| `on_macos` / `on_intel` | `pqsign-x86_64-apple-darwin.tar.gz` |
-| `on_linux` / `on_arm` | `pqsign-aarch64-unknown-linux-gnu.tar.gz` |
-| `on_linux` / `on_intel` | `pqsign-x86_64-unknown-linux-gnu.tar.gz` |
-
-After the change is merged, check the cask on a Mac:
+Then commit as `Update pqsign to X.Y.Z` and open a pull request on the tap. After it is merged, check the cask on a Mac:
 
 ```bash
 brew update && brew upgrade pqsign && pqsign --version
@@ -141,14 +124,15 @@ Delete the merged release branch locally (`git branch -d claude/release-vX.Y.Z`)
 
 Each step only runs if the previous one succeeded:
 
-1. Checks that the tag matches the version in `Cargo.toml`.
-2. Runs the full CI suite: tests on Linux, macOS and Windows, tests with the minimum supported Rust version, clippy, rustfmt, actionlint, and `cargo audit` for dependencies with known vulnerabilities.
-3. Builds the five release targets with `--locked`, the exact Rust version set in the workflow and [`scripts/release-build.sh`](../scripts/release-build.sh), which keeps build paths out of the binary and embeds the dependency list with cargo-auditable. Each target is built a second time from another directory, and the job fails if the two binaries differ. A CycloneDX SBOM is written per target.
+1. Checks that the tag matches the version in `Cargo.toml`, and that `docs/release-notes/vX.Y.Z.md` exists.
+2. Runs the full CI suite: tests on Linux, macOS and Windows, tests with the minimum supported Rust version, clippy, rustfmt, actionlint, `cargo audit` for dependencies with known vulnerabilities, and `cargo deny` for their licences and sources (allowed in `deny.toml`).
+3. Builds the five release targets with `--locked`, the exact Rust version set in the workflow and [`scripts/release-build.sh`](../scripts/release-build.sh), which keeps build paths out of the binary and embeds the dependency list with cargo-auditable. Each target is built a second time from another directory, and the job fails if the two binaries differ. On the three targets the runners can execute (Linux x86_64, macOS arm64, Windows), the library, fixture and Wycheproof tests run with the release profile, and the built binary generates a key, signs and verifies. A CycloneDX SBOM is written per target, and every archive contains the binary, `LICENSE` and `THIRD-PARTY-NOTICES.txt`, the licence texts and copyright notices of the crates in the binary, generated by cargo-about.
 4. Signs every archive and SBOM with a `.pqsig` in the current format, and every archive also with a `.v1.pqsig` for pqsign 0.1, which cannot read format v2.
 5. Verifies every signature against the committed `release.key.pub`. A release secret that does not match the committed key fails here.
 6. Runs `cargo publish --dry-run`, on real releases too, so a crate that can't be published fails while nothing is published yet.
-7. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives and signatures. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.
-8. Publishes the crate to crates.io, last, because a published version can never be replaced. The publish steps use the same pinned Rust version as the build.
+7. Records build provenance for the archives as GitHub artifact attestations, then creates the GitHub release with the archives, the signatures and the notes from `docs/release-notes/`. Dry runs skip this step, so a real release is its first test. If it fails, nothing has been published, and the failed jobs can be re-run.
+8. Downloads the published release and verifies every signature and attestation, as a user would. If that fails, the crate is not published.
+9. Publishes the crate to crates.io, last, because a published version can never be replaced. The publish steps use the same pinned Rust version as the build.
 
 ### Audit failures
 
@@ -160,7 +144,7 @@ Release binaries are built, and the crate is published, with the Rust version pi
 
 ## Dry runs
 
-Starting the workflow manually, or opening a pull request that changes `release.yml`, `ci.yml`, `scripts/`, `Cargo.toml` or `Cargo.lock`, runs steps 1 to 6 with a throwaway key generated inside the run, so the release secrets are never used. It skips steps 7 and 8. The signed files are kept as the `signed-release` workflow artifact.
+Starting the workflow manually, or opening a pull request that changes `release.yml`, `ci.yml`, `scripts/`, `Cargo.toml` or `Cargo.lock`, runs steps 1 to 6 with a throwaway key generated inside the run, so the release secrets are never used. It skips steps 7 to 9. The signed files are kept as the `signed-release` workflow artifact.
 
 ## Secrets
 

@@ -130,6 +130,8 @@ cargo install --locked cargo-audit
 cargo audit bin pqsign
 ```
 
+Releases after 0.5.0 also contain, in each archive, `LICENSE` and `THIRD-PARTY-NOTICES.txt`, the licences and copyright notices of the crates compiled into the binary.
+
 Each of these releases also has a CycloneDX SBOM per platform, `pqsign-<target>.cdx.json`, signed like the archives:
 
 ```bash

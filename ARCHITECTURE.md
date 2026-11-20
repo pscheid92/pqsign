@@ -101,6 +101,10 @@ the thread can't be created, `main` runs the command on the real main thread ins
   operations) and `cli` (the command `run` functions end to end). Results are in [benchmarks.md](docs/benchmarks.md).
 - `scripts/release-build.sh`: builds one release target reproducibly; the release workflow calls it, and
   [install.md](docs/install.md#rebuild-a-release-binary) explains how to rebuild a release with it.
+  `scripts/update-cask.sh` writes a release's version and checksums into the Homebrew cask.
+- `deny.toml`: the licences and sources CI allows for dependencies. `about.toml` and `about.hbs` generate the
+  `THIRD-PARTY-NOTICES.txt` every release archive ships with `LICENSE`.
+- `docs/release-notes/`: the notes of each release, which the release workflow publishes.
 - `tests/`: CLI and integration tests, fixtures for both signature formats and both secret key formats, and
   Wycheproof's ML-DSA-65 vectors.
 
