@@ -84,7 +84,8 @@ the thread can't be created, `main` runs the command on the real main thread ins
   `change_password` replaces the file, it reads the new bytes back with the new password (`check_rewritten`) and
   checks that the file on disk is still the one it read (`check_unchanged`, `Error::KeyFileChanged`).
   Signatures: signature format v1 and v2 files, plus the trusted comment rules (`check_trusted_comment`).
-- `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature.
+- `inspect_file`: reads any pqsign file without decrypting a secret key or verifying a signature. It checks a secret
+  key like `sign` does before the password, so a truncated or padded key is reported as corrupt.
 - `file` (internal): every read and write of a pqsign file goes through here.
 
 ### `src/errors.rs`, `src/password.rs`, `src/terminal.rs`

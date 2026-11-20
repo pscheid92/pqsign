@@ -102,12 +102,13 @@ fn inspect_binary(data: &[u8]) -> Result<FileInfo, Error> {
 
     let result = match header.file_type {
         FileType::PublicKey => public_key_info(&super::public_key::decode(data)?),
+        // The checks `sign` runs before it asks for the password, so a truncated or padded key shows as corrupt.
         FileType::SecretKey => {
-            let kdf = kdf::read_from(&mut r)?;
+            let parsed = super::secret_key::parse(data)?;
             FileInfo::SecretKey {
-                key_id: header.key_id,
-                version: header.version,
-                kdf,
+                key_id: parsed.header.key_id,
+                version: parsed.header.version,
+                kdf: parsed.kdf,
             }
         }
         FileType::Signature => {

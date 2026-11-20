@@ -55,9 +55,6 @@ pub enum Error {
 
     #[error("crypto error: {0}")]
     Crypto(String),
-
-    #[error("base64 error: {0}")]
-    Base64(#[from] base64::DecodeError),
 }
 
 impl Error {

@@ -186,9 +186,10 @@ impl PublicKey {
     }
 
     pub fn from_parts(key_id: KeyId, ed25519: Ed25519PublicKey, mldsa65: MlDsa65PublicKey) -> Result<Self, Error> {
-        let ed25519 = ed25519::VerifyingKey::from_bytes(ed25519.as_bytes()).map_err(|e| Error::Crypto(format!("invalid ed25519 public key: {e}")))?;
-        let mldsa65 =
-            ml_dsa_65::PublicKey::try_from_bytes(mldsa65.into_bytes()).map_err(|e| Error::Crypto(format!("invalid mldsa65 public key: {e}")))?;
+        let ed25519 =
+            ed25519::VerifyingKey::from_bytes(ed25519.as_bytes()).map_err(|e| Error::InvalidFormat(format!("invalid Ed25519 public key: {e}")))?;
+        let mldsa65 = ml_dsa_65::PublicKey::try_from_bytes(mldsa65.into_bytes())
+            .map_err(|e| Error::InvalidFormat(format!("invalid ML-DSA-65 public key: {e}")))?;
         Ok(PublicKey { key_id, ed25519, mldsa65 })
     }
 }

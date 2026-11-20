@@ -54,7 +54,9 @@ pub fn read(path: &Path) -> Result<PublicKey, Error> {
 pub fn read_from_string(content: &str) -> Result<PublicKey, Error> {
     let line = content.trim_end();
     let encoded = strip_prefix(line)?;
-    let blob = STANDARD.decode(encoded)?;
+    let blob = STANDARD
+        .decode(encoded)
+        .map_err(|e| Error::InvalidFormat(format!("public key is not valid base64: {e}")))?;
     check_text_version(&blob)?;
     decode(&blob)
 }

@@ -148,7 +148,7 @@ The payload holds no key ID. After decryption, the start of the rebuilt keys' fi
 
 pqsign checks the payload length for the file's format version before asking for the password. A truncated, padded or relabelled key file is therefore reported as corrupt rather than as a wrong password.
 
-A secret key file of 151 bytes is small enough to back up as text, for example with `base64`, in a QR code or a single password-manager field. A restore mistake can show up as a format error, as a corrupt file, as the key-ID mismatch error, or as `wrong password`, because the AEAD can't tell a damaged file from a wrong password. The reliable check is to sign a test file and verify the signature against the key's `.pub` file; `pqsign inspect` only confirms the file type and the format version.
+A secret key file of 151 bytes is small enough to back up as text, for example with `base64`, in a QR code or a single password-manager field. A restore mistake can show up as a format error, as a corrupt file, as the key-ID mismatch error, or as `wrong password`, because the AEAD can't tell a damaged file from a wrong password. The reliable check is to sign a test file and verify the signature against the key's `.pub` file; `pqsign inspect` only confirms the file type, the format version and the length, which catches a truncated file but not a damaged one.
 
 #### Secret key format v1 (pqsign 0.1 to 0.3)
 
