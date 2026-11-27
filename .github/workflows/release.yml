@@ -106,7 +106,7 @@ jobs:
       # each archive; cargo-about writes the third-party notices shipped in it. No build cache: a cache saved under a
       # tag can't be restored by the next tag.
       - name: Install build tools
-        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-auditable@0.7.7,cargo-cyclonedx@0.5.10,cargo-about@0.9.3
 
